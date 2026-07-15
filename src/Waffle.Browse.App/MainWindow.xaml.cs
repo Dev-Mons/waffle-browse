@@ -11,6 +11,7 @@ using Waffle.Browse.App.Controls;
 using Waffle.Browse.App.Docking;
 using Waffle.Browse.App.Settings;
 using Waffle.Browse.App.Search;
+using Waffle.Browse.App.Search.Indexing;
 using Waffle.Browse.App.Shell;
 using Waffle.Browse.App.Theming;
 using Waffle.Browse.Core.Docking;
@@ -76,8 +77,8 @@ public partial class MainWindow : Window
         settingsStore = new UiSettingsStore(Path.Combine(appDataPath, "settings.json"));
         layoutState = layoutService.CreateDefault(fallbackPath);
         waffleFileSearchProvider = new WaffleFileSearchProvider(
-            new RecursiveFileIndexSource(),
-            new JsonFileIndexStore(Path.Combine(appDataPath, "search-index-v1.json")),
+            new WindowsFileIndexSource(),
+            new JsonFileIndexStore(Path.Combine(appDataPath, "search-index-v2.json")),
             ResolveIndexRoots(fallbackPath));
 
         InitializeComponent();
@@ -1333,9 +1334,7 @@ public partial class MainWindow : Window
             {
                 try
                 {
-                    if (drive.IsReady
-                        && drive.DriveType == DriveType.Fixed
-                        && string.Equals(drive.DriveFormat, "NTFS", StringComparison.OrdinalIgnoreCase))
+                    if (drive.IsReady && drive.DriveType == DriveType.Fixed)
                     {
                         roots.Add(drive.RootDirectory.FullName);
                     }

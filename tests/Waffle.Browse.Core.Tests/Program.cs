@@ -55,8 +55,18 @@ var tests = new (string Name, Action Run)[]
     ("File index searches names and paths within scope", FileSearchIndexTests.SearchesNameAndPathWithScopeAndLimit),
     ("File index applies create delete and rename changes", FileSearchIndexTests.AppliesCreateDeleteAndDirectoryRename),
     ("File index sorts folders first and caps results", FileSearchIndexTests.SortsFoldersFirstAndCapsResults),
+    ("File index publishes replacement and buffered changes atomically", FileSearchIndexTests.ReplaceAndApplyPublishesOnlyTheCompletedGeneration),
+    ("File index metadata updates preserve native identity", FileSearchIndexTests.MetadataUpdatesPreserveNativeIdentityButCreatesReplaceIt),
+    ("JSON index store round-trips version 2 native identifiers", JsonFileIndexStoreTests.RoundTripsVersionTwoNativeIdentifiersAndNullMetadata),
+    ("JSON index store rejects version 1 snapshots", JsonFileIndexStoreTests.RejectsVersionOneSnapshotAsCorrupt),
+    ("JSON index store rejects semantically invalid version 2 snapshots", JsonFileIndexStoreTests.RejectsSemanticallyInvalidVersionTwoSnapshots),
     ("Waffle provider builds persists and tracks file changes", WaffleFileSearchProviderTests.BuildsPersistsAndTracksFileChanges),
     ("Waffle provider safely rebuilds corrupt persistence", WaffleFileSearchProviderTests.CorruptPersistenceTriggersSafeRebuild),
+    ("Waffle provider summarizes build warnings without changing skipped counts", WaffleFileSearchProviderTests.CompletedBuildSummarizesWarningsWithoutChangingSkippedCount),
+    ("Canceled rebuild restores the previous ready generation", WaffleFileSearchProviderTests.CanceledRebuildRestoresPreviousReadyGeneration),
+    ("Canceled initial rebuild restores the empty state", WaffleFileSearchProviderTests.CanceledInitialRebuildRestoresEmptyState),
+    ("Failed rebuild applies buffered changes to the previous generation", WaffleFileSearchProviderTests.FailedRebuildAppliesBufferedChangesToPreviousGeneration),
+    ("Failed initial build does not publish buffered partial changes", WaffleFileSearchProviderTests.FailedInitialBuildDoesNotPublishBufferedPartialChanges),
     ("Recursive index build honors cancellation", WaffleFileSearchProviderTests.RecursiveBuildHonorsCancellation),
 };
 

@@ -4,6 +4,16 @@ namespace Waffle.Browse.Core.Search.Indexing;
 
 public sealed class FileSearchIndex
 {
+    internal sealed class PreparedReplacement
+    {
+        internal PreparedReplacement(Dictionary<string, FileIndexEntry> entries)
+        {
+            Entries = entries;
+        }
+
+        internal Dictionary<string, FileIndexEntry> Entries { get; }
+    }
+
     private readonly ReaderWriterLockSlim gate = new();
     private Dictionary<string, FileIndexEntry> entries = new(StringComparer.OrdinalIgnoreCase);
 
@@ -26,20 +36,70 @@ public sealed class FileSearchIndex
     public void Replace(IEnumerable<FileIndexEntry> replacement)
     {
         ArgumentNullException.ThrowIfNull(replacement);
-        var next = replacement
-            .Where(item => !string.IsNullOrWhiteSpace(item.FullPath))
-            .GroupBy(item => item.FullPath, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.Last(), StringComparer.OrdinalIgnoreCase);
+        var next = BuildEntries(replacement, CancellationToken.None);
 
+        ReplaceCore(next);
+    }
+
+    public void ReplaceAndApply(
+        IEnumerable<FileIndexEntry> replacement,
+        IEnumerable<FileIndexChange> changes)
+    {
+        var prepared = PrepareReplacement(replacement, CancellationToken.None);
+        ReplaceAndApply(prepared, changes);
+    }
+
+    internal PreparedReplacement PrepareReplacement(
+        IEnumerable<FileIndexEntry> replacement,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(replacement);
+        return new PreparedReplacement(BuildEntries(replacement, cancellationToken));
+    }
+
+    internal void ReplaceAndApply(PreparedReplacement replacement, IEnumerable<FileIndexChange> changes)
+        => ReplaceAndApply(replacement, changes, CancellationToken.None);
+
+    internal void ReplaceAndApply(
+        PreparedReplacement replacement,
+        IEnumerable<FileIndexChange> changes,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(replacement);
+        ArgumentNullException.ThrowIfNull(changes);
+        ApplyChangesCore(replacement.Entries, changes, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        ReplaceCore(replacement.Entries);
+    }
+
+    private void ReplaceCore(Dictionary<string, FileIndexEntry> replacement)
+    {
         gate.EnterWriteLock();
         try
         {
-            entries = next;
+            entries = replacement;
         }
         finally
         {
             gate.ExitWriteLock();
         }
+    }
+
+    private static Dictionary<string, FileIndexEntry> BuildEntries(
+        IEnumerable<FileIndexEntry> replacement,
+        CancellationToken cancellationToken)
+    {
+        var next = new Dictionary<string, FileIndexEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in replacement)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!string.IsNullOrWhiteSpace(item.FullPath))
+            {
+                next[item.FullPath] = item;
+            }
+        }
+
+        return next;
     }
 
     public void Apply(IEnumerable<FileIndexChange> changes)
@@ -48,21 +108,7 @@ public sealed class FileSearchIndex
         gate.EnterWriteLock();
         try
         {
-            foreach (var change in changes)
-            {
-                switch (change.Kind)
-                {
-                    case FileIndexChangeKind.Upsert when change.Entry is not null:
-                        entries[change.Entry.FullPath] = change.Entry;
-                        break;
-                    case FileIndexChangeKind.Delete:
-                        RemovePathCore(change.Path);
-                        break;
-                    case FileIndexChangeKind.Rename when !string.IsNullOrWhiteSpace(change.NewPath):
-                        RenamePathCore(change.Path, change.NewPath);
-                        break;
-                }
-            }
+            ApplyChangesCore(entries, changes, CancellationToken.None);
         }
         finally
         {
@@ -119,36 +165,73 @@ public sealed class FileSearchIndex
         }
     }
 
-    private void RemovePathCore(string path)
+    private static void ApplyChangesCore(
+        Dictionary<string, FileIndexEntry> target,
+        IEnumerable<FileIndexChange> changes,
+        CancellationToken cancellationToken)
     {
-        var normalized = NormalizePath(path);
-        var prefix = DescendantPrefix(normalized);
-        foreach (var key in entries.Keys
-                     .Where(key => PathEquals(key, normalized) || key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                     .ToList())
+        foreach (var change in changes)
         {
-            entries.Remove(key);
+            cancellationToken.ThrowIfCancellationRequested();
+            switch (change.Kind)
+            {
+                case FileIndexChangeKind.Upsert when change.Entry is not null:
+                    var entry = change.Entry;
+                    if (change.PreserveIdentity
+                        && target.TryGetValue(entry.FullPath, out var existing))
+                    {
+                        entry = entry with
+                        {
+                            VolumeId = entry.VolumeId ?? existing.VolumeId,
+                            FileReferenceNumber = entry.FileReferenceNumber ?? existing.FileReferenceNumber
+                        };
+                    }
+
+                    target[entry.FullPath] = entry;
+                    break;
+                case FileIndexChangeKind.Delete:
+                    RemovePathCore(target, change.Path);
+                    break;
+                case FileIndexChangeKind.Rename when !string.IsNullOrWhiteSpace(change.NewPath):
+                    RenamePathCore(target, change.Path, change.NewPath);
+                    break;
+            }
         }
     }
 
-    private void RenamePathCore(string oldPath, string newPath)
+    private static void RemovePathCore(Dictionary<string, FileIndexEntry> target, string path)
+    {
+        var normalized = NormalizePath(path);
+        var prefix = DescendantPrefix(normalized);
+        foreach (var key in target.Keys
+                     .Where(key => PathEquals(key, normalized) || key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                     .ToList())
+        {
+            target.Remove(key);
+        }
+    }
+
+    private static void RenamePathCore(
+        Dictionary<string, FileIndexEntry> target,
+        string oldPath,
+        string newPath)
     {
         var oldNormalized = NormalizePath(oldPath);
         var newNormalized = NormalizePath(newPath);
         var prefix = DescendantPrefix(oldNormalized);
-        var affected = entries.Values
+        var affected = target.Values
             .Where(item => PathEquals(item.FullPath, oldNormalized)
                 || item.FullPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
         foreach (var item in affected)
         {
-            entries.Remove(item.FullPath);
+            target.Remove(item.FullPath);
             var suffix = item.FullPath.Length == oldNormalized.Length
                 ? string.Empty
                 : item.FullPath[oldNormalized.Length..];
             var movedPath = newNormalized + suffix;
-            entries[movedPath] = item with
+            target[movedPath] = item with
             {
                 FullPath = movedPath,
                 Name = Path.GetFileName(movedPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),

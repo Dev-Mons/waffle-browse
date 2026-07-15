@@ -3,6 +3,8 @@ namespace Waffle.Browse.Core.Search.Indexing;
 public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
 {
     public const string ProviderId = "waffle-index";
+    private const int MaxWarningSummaryCount = 3;
+    private const int MaxWarningSummaryLength = 160;
 
     private readonly FileSearchIndex index = new();
     private readonly IFileIndexSource source;
@@ -103,8 +105,10 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
         try
         {
             ObjectDisposedException.ThrowIf(disposed, this);
+            FileIndexState stateBeforeRebuild;
             lock (stateGate)
             {
+                stateBeforeRebuild = state;
                 rebuildInProgress = true;
                 pendingChanges.Clear();
                 state = state with
@@ -115,31 +119,29 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
                 };
             }
 
+            var completedGenerationPublished = false;
             try
             {
                 var result = await source.BuildAsync(roots, cancellationToken).ConfigureAwait(false);
-                index.Replace(result.Entries);
+                var replacement = index.PrepareReplacement(result.Entries, cancellationToken);
+                var warning = SummarizeBuildWarnings(result);
 
-                List<FileIndexChange> changes;
                 lock (stateGate)
                 {
-                    changes = pendingChanges.ToList();
+                    cancellationToken.ThrowIfCancellationRequested();
+                    index.ReplaceAndApply(replacement, pendingChanges, cancellationToken);
                     pendingChanges.Clear();
                     rebuildInProgress = false;
+                    state = new FileIndexState(
+                        FileIndexBuildState.Ready,
+                        stateBeforeRebuild.Generation + 1,
+                        index.Count,
+                        DateTimeOffset.UtcNow,
+                        result.Checkpoints,
+                        warning);
                 }
 
-                index.Apply(changes);
-                var warning = result.SkippedPathCount == 0
-                    ? null
-                    : $"일부 경로를 건너뜀: {result.SkippedPathCount:N0}개";
-                var completedState = new FileIndexState(
-                    FileIndexBuildState.Ready,
-                    State.Generation + 1,
-                    index.Count,
-                    DateTimeOffset.UtcNow,
-                    result.Checkpoints,
-                    warning);
-                SetState(completedState);
+                completedGenerationPublished = true;
                 await PersistAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
@@ -147,6 +149,23 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
                 lock (stateGate)
                 {
                     rebuildInProgress = false;
+                    if (!completedGenerationPublished)
+                    {
+                        if (HasCompletedGeneration(stateBeforeRebuild))
+                        {
+                            index.Apply(pendingChanges);
+                            state = stateBeforeRebuild with
+                            {
+                                BuildState = FileIndexBuildState.Ready,
+                                ItemCount = index.Count
+                            };
+                        }
+                        else
+                        {
+                            state = FileIndexState.Empty;
+                        }
+                    }
+
                     pendingChanges.Clear();
                 }
 
@@ -156,16 +175,21 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
             {
                 lock (stateGate)
                 {
+                    var hasCompletedGeneration = HasCompletedGeneration(stateBeforeRebuild);
+                    if (hasCompletedGeneration)
+                    {
+                        index.Apply(pendingChanges);
+                    }
+
                     rebuildInProgress = false;
                     pendingChanges.Clear();
+                    state = state with
+                    {
+                        BuildState = hasCompletedGeneration ? FileIndexBuildState.Ready : FileIndexBuildState.Failed,
+                        ItemCount = index.Count,
+                        ErrorMessage = ex.Message
+                    };
                 }
-
-                SetState(State with
-                {
-                    BuildState = index.Count > 0 ? FileIndexBuildState.Ready : FileIndexBuildState.Failed,
-                    ItemCount = index.Count,
-                    ErrorMessage = ex.Message
-                });
             }
         }
         finally
@@ -173,6 +197,42 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
             rebuildGate.Release();
         }
     }
+
+    private static string? SummarizeBuildWarnings(FileIndexBuildResult result)
+    {
+        var summaries = new List<string>();
+        if (result.SkippedPathCount > 0)
+        {
+            summaries.Add($"일부 경로를 건너뜀: {result.SkippedPathCount:N0}개");
+        }
+
+        var warnings = result.Warnings
+            .Where(warning => !string.IsNullOrWhiteSpace(warning))
+            .Select(warning => warning.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (warnings.Count > 0)
+        {
+            var displayed = warnings
+                .Take(MaxWarningSummaryCount)
+                .Select(TruncateWarning);
+            var omittedCount = warnings.Count - MaxWarningSummaryCount;
+            var omitted = omittedCount > 0 ? $" (외 {omittedCount:N0}개)" : string.Empty;
+            summaries.Add($"경고: {string.Join(" | ", displayed)}{omitted}");
+        }
+
+        return summaries.Count == 0 ? null : string.Join("; ", summaries);
+    }
+
+    private static string TruncateWarning(string warning) =>
+        warning.Length <= MaxWarningSummaryLength
+            ? warning
+            : warning[..(MaxWarningSummaryLength - 3)] + "...";
+
+    private static bool HasCompletedGeneration(FileIndexState candidate) =>
+        candidate.BuildState == FileIndexBuildState.Ready
+        || candidate.Generation > 0
+        || candidate.LastCompletedAt is not null;
 
     public Task<SearchProviderStatus> CheckStatusAsync(CancellationToken cancellationToken = default)
     {
@@ -208,8 +268,8 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
                     InternalBufferSize = 64 * 1024,
                     EnableRaisingEvents = false
                 };
-                watcher.Created += OnCreatedOrChanged;
-                watcher.Changed += OnCreatedOrChanged;
+                watcher.Created += OnCreated;
+                watcher.Changed += OnChanged;
                 watcher.Deleted += OnDeleted;
                 watcher.Renamed += OnRenamed;
                 watcher.Error += OnWatcherError;
@@ -223,11 +283,19 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
         }
     }
 
-    private void OnCreatedOrChanged(object sender, FileSystemEventArgs e)
+    private void OnCreated(object sender, FileSystemEventArgs e)
     {
         if (RecursiveFileIndexSource.TryReadEntry(e.FullPath) is { } entry)
         {
             ApplyChange(FileIndexChange.Upsert(entry));
+        }
+    }
+
+    private void OnChanged(object sender, FileSystemEventArgs e)
+    {
+        if (RecursiveFileIndexSource.TryReadEntry(e.FullPath) is { } entry)
+        {
+            ApplyChange(FileIndexChange.UpdateMetadata(entry));
         }
     }
 
@@ -283,10 +351,11 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
                 pendingChanges.Add(change);
                 return;
             }
+
+            index.Apply([change]);
+            state = state with { ItemCount = index.Count };
         }
 
-        index.Apply([change]);
-        SetState(State with { ItemCount = index.Count });
         SchedulePersistence();
     }
 
@@ -325,10 +394,16 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
         await persistenceGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var snapshot = new FileIndexSnapshot(
-                FileIndexSnapshot.CurrentFormatVersion,
-                State with { ItemCount = index.Count },
-                index.Snapshot());
+            FileIndexSnapshot snapshot;
+            lock (stateGate)
+            {
+                var entries = index.Snapshot();
+                snapshot = new FileIndexSnapshot(
+                    FileIndexSnapshot.CurrentFormatVersion,
+                    state with { ItemCount = entries.Count },
+                    entries);
+            }
+
             await store.SaveAsync(snapshot, cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -392,8 +467,8 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
         foreach (var watcher in watchers)
         {
             watcher.EnableRaisingEvents = false;
-            watcher.Created -= OnCreatedOrChanged;
-            watcher.Changed -= OnCreatedOrChanged;
+            watcher.Created -= OnCreated;
+            watcher.Changed -= OnChanged;
             watcher.Deleted -= OnDeleted;
             watcher.Renamed -= OnRenamed;
             watcher.Error -= OnWatcherError;

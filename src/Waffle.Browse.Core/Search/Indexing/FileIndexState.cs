@@ -16,7 +16,8 @@ public sealed record FileIndexCheckpoint(
     string? FileSystem,
     ulong? JournalId,
     long? NextUsn,
-    DateTimeOffset CapturedAt);
+    DateTimeOffset CapturedAt,
+    uint? VolumeSerialNumber = null);
 
 public sealed record FileIndexState(
     FileIndexBuildState BuildState,
@@ -35,5 +36,5 @@ public sealed record FileIndexSnapshot(
     FileIndexState State,
     IReadOnlyList<FileIndexEntry> Entries)
 {
-    public const int CurrentFormatVersion = 1;
+    public const int CurrentFormatVersion = 2;
 }

@@ -40,12 +40,64 @@ public sealed class JsonFileIndexStore : IFileIndexStore
                 return new FileIndexLoadResult(FileIndexLoadKind.Corrupt, ErrorMessage: "지원하지 않는 Waffle 인덱스 형식입니다.");
             }
 
+            if (ValidateSnapshot(snapshot) is { } validationError)
+            {
+                return new FileIndexLoadResult(FileIndexLoadKind.Corrupt, ErrorMessage: validationError);
+            }
+
             return new FileIndexLoadResult(FileIndexLoadKind.Loaded, snapshot);
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {
             return new FileIndexLoadResult(FileIndexLoadKind.Corrupt, ErrorMessage: ex.Message);
         }
+    }
+
+    private static string? ValidateSnapshot(FileIndexSnapshot snapshot)
+    {
+        if (snapshot.State is null || snapshot.Entries is null)
+        {
+            return "Waffle 인덱스의 필수 상태 또는 항목 컬렉션이 없습니다.";
+        }
+
+        var state = snapshot.State;
+        if (state.Checkpoints is null
+            || state.Generation < 0
+            || state.ItemCount < 0
+            || !Enum.IsDefined(state.BuildState))
+        {
+            return "Waffle 인덱스 상태가 올바르지 않습니다.";
+        }
+
+        if (state.ItemCount != snapshot.Entries.Count)
+        {
+            return "Waffle 인덱스 항목 수와 저장된 상태가 일치하지 않습니다.";
+        }
+
+        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in snapshot.Entries)
+        {
+            if (entry is null
+                || string.IsNullOrWhiteSpace(entry.FullPath)
+                || string.IsNullOrWhiteSpace(entry.Name)
+                || entry.ParentPath is null
+                || !Enum.IsDefined(entry.Kind)
+                || entry.Size < 0
+                || !paths.Add(entry.FullPath))
+            {
+                return "Waffle 인덱스에 유효하지 않거나 중복된 파일 항목이 있습니다.";
+            }
+        }
+
+        foreach (var checkpoint in state.Checkpoints)
+        {
+            if (checkpoint is null || string.IsNullOrWhiteSpace(checkpoint.RootPath))
+            {
+                return "Waffle 인덱스에 유효하지 않은 볼륨 체크포인트가 있습니다.";
+            }
+        }
+
+        return null;
     }
 
     public async Task SaveAsync(FileIndexSnapshot snapshot, CancellationToken cancellationToken = default)

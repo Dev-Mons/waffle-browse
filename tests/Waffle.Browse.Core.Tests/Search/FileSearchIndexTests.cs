@@ -59,6 +59,121 @@ internal static class FileSearchIndexTests
         TestAssert.Equal(2, response.Results.Count, "Results should respect MaxResults");
     }
 
+    public static void ReplaceAndApplyPublishesOnlyTheCompletedGeneration()
+    {
+        var index = new FileSearchIndex();
+        index.Replace([Entry(@"C:\Stable\previous.txt", SearchItemKind.File)]);
+
+        using var replacementStarted = new ManualResetEventSlim();
+        using var continueReplacement = new ManualResetEventSlim();
+        using var changesStarted = new ManualResetEventSlim();
+        using var continueChanges = new ManualResetEventSlim();
+
+        IEnumerable<FileIndexEntry> Replacement()
+        {
+            replacementStarted.Set();
+            continueReplacement.Wait();
+            yield return Entry(@"C:\Work\Old", SearchItemKind.Folder);
+            yield return Entry(@"C:\Work\Old\keep.txt", SearchItemKind.File);
+            yield return Entry(@"C:\Work\Old\Removed", SearchItemKind.Folder);
+            yield return Entry(@"C:\Work\Old\Removed\child.txt", SearchItemKind.File);
+        }
+
+        IEnumerable<FileIndexChange> Changes()
+        {
+            changesStarted.Set();
+            continueChanges.Wait();
+            yield return FileIndexChange.Rename(@"C:\Work\Old", @"C:\Work\New");
+            yield return FileIndexChange.Delete(@"C:\Work\New\Removed");
+            yield return FileIndexChange.Upsert(Entry(@"C:\Work\New\created.txt", SearchItemKind.File));
+        }
+
+        var publish = Task.Run(() => index.ReplaceAndApply(Replacement(), Changes()));
+        var replacementWasPreparedWithoutLock = false;
+        var changesWereAppliedWithoutLock = false;
+        var replacementEnumerationBegan = false;
+        var changeEnumerationBegan = false;
+        try
+        {
+            replacementEnumerationBegan = replacementStarted.Wait(TimeSpan.FromSeconds(2));
+            if (replacementEnumerationBegan)
+            {
+                replacementWasPreparedWithoutLock = CanReadOnlyPreviousGeneration(index);
+            }
+
+            continueReplacement.Set();
+            changeEnumerationBegan = changesStarted.Wait(TimeSpan.FromSeconds(2));
+            if (changeEnumerationBegan)
+            {
+                changesWereAppliedWithoutLock = CanReadOnlyPreviousGeneration(index);
+            }
+        }
+        finally
+        {
+            continueReplacement.Set();
+            continueChanges.Set();
+        }
+
+        publish.GetAwaiter().GetResult();
+        TestAssert.True(replacementEnumerationBegan, "Replacement enumeration should begin");
+        TestAssert.True(changeEnumerationBegan, "Buffered change enumeration should begin");
+        TestAssert.True(replacementWasPreparedWithoutLock, "Replacement should be prepared before entering the write lock");
+        TestAssert.True(changesWereAppliedWithoutLock, "Buffered changes should be applied before entering the write lock");
+        TestAssert.Equal(0L, Search(index, "previous").TotalResults, "The previous generation should be replaced");
+        TestAssert.Equal(@"C:\Work\New\keep.txt", Search(index, "keep").Results.Single().FullPath, "Directory rename should move replacement descendants");
+        TestAssert.Equal(0L, Search(index, "child").TotalResults, "Directory delete should remove replacement descendants");
+        TestAssert.Equal(@"C:\Work\New\created.txt", Search(index, "created").Results.Single().FullPath, "Upsert should be included in the published generation");
+    }
+
+    public static void MetadataUpdatesPreserveNativeIdentityButCreatesReplaceIt()
+    {
+        const string path = @"C:\Work\native.txt";
+        var reference = new FileIndexFileReference(10, 20);
+        var index = new FileSearchIndex();
+        index.Replace([
+            new FileIndexEntry(
+                path,
+                "native.txt",
+                @"C:\Work",
+                SearchItemKind.File,
+                1,
+                DateTimeOffset.UnixEpoch,
+                "volume-id",
+                reference)
+        ]);
+
+        var metadata = new FileIndexEntry(
+            path,
+            "native.txt",
+            @"C:\Work",
+            SearchItemKind.File,
+            2,
+            DateTimeOffset.UnixEpoch.AddMinutes(1));
+        index.Apply([FileIndexChange.UpdateMetadata(metadata)]);
+
+        var updated = index.Snapshot().Single();
+        TestAssert.Equal(2L, updated.Size, "Changed metadata should replace the previous size");
+        TestAssert.Equal("volume-id", updated.VolumeId, "Changed metadata should preserve the native volume identity");
+        TestAssert.Equal<FileIndexFileReference?>(reference, updated.FileReferenceNumber, "Changed metadata should preserve the native file reference");
+
+        index.Apply([FileIndexChange.Upsert(metadata)]);
+        var recreated = index.Snapshot().Single();
+        TestAssert.Equal<string?>(null, recreated.VolumeId, "A create upsert must not reuse identity from a replaced file");
+        TestAssert.Equal<FileIndexFileReference?>(null, recreated.FileReferenceNumber, "A create upsert must not reuse the old file reference");
+    }
+
+    private static bool CanReadOnlyPreviousGeneration(FileSearchIndex index)
+    {
+        var search = Task.Run(() => (
+            Previous: Search(index, "previous").TotalResults,
+            Replacement: Search(index, "keep").TotalResults));
+        return search.Wait(TimeSpan.FromSeconds(1))
+            && search.Result is { Previous: 1, Replacement: 0 };
+    }
+
+    private static SearchResponse Search(FileSearchIndex index, string text) =>
+        index.Search(new SearchQuery(text, SearchScope.GlobalIndex, 1000), Ready, "test");
+
     private static FileIndexEntry Entry(string path, SearchItemKind kind, long? size = null) =>
         new(
             path,
