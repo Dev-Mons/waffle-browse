@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Waffle.Browse.Core.Docking;
 using Waffle.Browse.Core.Search;
 
@@ -6,12 +7,6 @@ namespace Waffle.Browse.Core.Persistence;
 
 public sealed class DockLayoutStore
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-        PropertyNameCaseInsensitive = true
-    };
-
     private readonly string filePath;
 
     public DockLayoutStore(string filePath)
@@ -27,7 +22,9 @@ public sealed class DockLayoutStore
             Directory.CreateDirectory(directory);
         }
 
-        File.WriteAllText(filePath, JsonSerializer.Serialize(state, JsonOptions));
+        File.WriteAllText(
+            filePath,
+            JsonSerializer.Serialize(state, DockLayoutJsonContext.Default.DockLayoutState));
     }
 
     public DockLayoutState LoadOrDefault(string fallbackPath, Func<string, bool>? isPathAvailable = null)
@@ -40,7 +37,9 @@ public sealed class DockLayoutStore
 
         try
         {
-            var state = JsonSerializer.Deserialize<DockLayoutState>(File.ReadAllText(filePath), JsonOptions);
+            var state = JsonSerializer.Deserialize(
+                File.ReadAllText(filePath),
+                DockLayoutJsonContext.Default.DockLayoutState);
             return state is null
                 ? service.CreateDefault(fallbackPath)
                 : NormalizeForRestore(state, fallbackPath, isPathAvailable ?? Directory.Exists);
@@ -191,3 +190,9 @@ public sealed class DockLayoutStore
         return WaffleSearchLocation.TryParse(value, out _) || IsAvailable(value, isPathAvailable);
     }
 }
+
+[JsonSourceGenerationOptions(
+    WriteIndented = true,
+    PropertyNameCaseInsensitive = true)]
+[JsonSerializable(typeof(DockLayoutState))]
+internal sealed partial class DockLayoutJsonContext : JsonSerializerContext;

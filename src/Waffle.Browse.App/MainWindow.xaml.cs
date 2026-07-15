@@ -11,7 +11,6 @@ using Waffle.Browse.App.Controls;
 using Waffle.Browse.App.Docking;
 using Waffle.Browse.App.Settings;
 using Waffle.Browse.App.Search;
-using Waffle.Browse.App.Search.Indexing;
 using Waffle.Browse.App.Shell;
 using Waffle.Browse.App.Theming;
 using Waffle.Browse.Core.Docking;
@@ -75,11 +74,18 @@ public partial class MainWindow : Window
         var appDataPath = ApplicationDataPath.Resolve();
         layoutStore = new DockLayoutStore(Path.Combine(appDataPath, "layout.json"));
         settingsStore = new UiSettingsStore(Path.Combine(appDataPath, "settings.json"));
+        settings = settingsStore.Load();
         layoutState = layoutService.CreateDefault(fallbackPath);
         waffleFileSearchProvider = new WaffleFileSearchProvider(
-            new WindowsFileIndexSource(),
-            new JsonFileIndexStore(Path.Combine(appDataPath, "search-index-v2.json")),
-            ResolveIndexRoots(fallbackPath));
+            new FallbackFileIndexSource(
+                new NtfsMftIndexSource(),
+                new FallbackFileIndexSource(
+                    new NamedPipeFileIndexSource(
+                        new ElevatedIndexerProcessLauncher(
+                            NativeAotIndexerImagePolicy.AcquireNativeAotIndexerImage)),
+                    new RecursiveFileIndexSource())),
+            new JsonFileIndexStore(Path.Combine(appDataPath, "search-index-v3.json")),
+            ResolveIndexRoots(fallbackPath, settings.IndexedNetworkRoots));
 
         InitializeComponent();
         searchDebounceTimer = new DispatcherTimer(DispatcherPriority.Background)
@@ -1325,7 +1331,9 @@ public partial class MainWindow : Window
         }
     }
 
-    private static IReadOnlyList<string> ResolveIndexRoots(string fallback)
+    private static IReadOnlyList<string> ResolveIndexRoots(
+        string fallback,
+        IReadOnlyList<string>? indexedNetworkRoots)
     {
         var roots = new List<string>();
         try
@@ -1334,7 +1342,8 @@ public partial class MainWindow : Window
             {
                 try
                 {
-                    if (drive.IsReady && drive.DriveType == DriveType.Fixed)
+                    if (drive.IsReady
+                        && drive.DriveType == DriveType.Fixed)
                     {
                         roots.Add(drive.RootDirectory.FullName);
                     }
@@ -1348,7 +1357,24 @@ public partial class MainWindow : Window
         {
         }
 
-        return roots.Count > 0 ? roots : [fallback];
+        foreach (var configuredRoot in indexedNetworkRoots ?? [])
+        {
+            try
+            {
+                var root = Path.GetFullPath(configuredRoot);
+                if (root.StartsWith(@"\\", StringComparison.Ordinal))
+                {
+                    roots.Add(root);
+                }
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+            }
+        }
+
+        return roots.Count > 0
+            ? roots.Distinct(StringComparer.OrdinalIgnoreCase).ToList()
+            : [fallback];
     }
 
     private void ApplyTheme(UiTheme theme)

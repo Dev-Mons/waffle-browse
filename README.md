@@ -15,8 +15,8 @@ Windows Explorer의 파일 목록 렌더링을 재사용하는 **멀티 패널 W
   - 탭 드래그를 통한 패널 이동 및 도킹(분할/이동)
 - **빠른 검색**
   - Waffle 자체 로컬 인덱스로 입력 후 즉시 파일/폴더 검색
-  - NTFS는 MFT 기반 백그라운드 스냅샷을 사용하고, 권한 또는 API 제약 시 재귀 인덱싱으로 안전하게 폴백
-  - 비 NTFS 고정 드라이브는 재귀 인덱싱으로 파일명/경로 검색 가능
+  - NTFS는 MFT 초기 스냅샷과 USN Change Journal 체크포인트로 증분 갱신
+  - hard link와 64/128-bit 파일 ID를 보존하고, 비 NTFS는 재귀 인덱스로 볼륨별 폴백
   - 전체 인덱스 또는 현재 폴더와 하위 폴더 범위 선택
   - 검색 탭의 가상화 결과 목록을 1초 간격으로 갱신
   - 이름/경로 부분 일치 및 와일드카드, 이름/경로/수정일/크기 정렬 지원
@@ -41,6 +41,7 @@ Windows Explorer의 파일 목록 렌더링을 재사용하는 **멀티 패널 W
 - Clean architecture-like layering:
   - `src/Waffle.Browse.Core` (도메인/상태/테스트)
   - `src/Waffle.Browse.App` (WPF UI + Shell 호스트 + 사용자 입력 처리)
+  - `src/Waffle.Browse.Indexer` (권한 분리용 current-user named-pipe helper)
 
 ## 빌드 및 실행
 
@@ -55,6 +56,19 @@ dotnet build
 ```bash
 dotnet run --project src/Waffle.Browse.App/Waffle.Browse.App.csproj
 ```
+
+일반 사용자 토큰에서 원시 NTFS 접근이 거부되고 helper pipe가 없으면, 보호된 `Program Files` 설치 위치의 앱은 같은 디렉터리에 있는 정확한 sibling `Waffle.Browse.Indexer.exe`를 인수 없이 UAC로 실행합니다. 실행 전에는 `Program Files` root부터 전체 배포 트리까지 reparse point가 없는지, 현재 사용자에게 디렉터리 교체나 executable·DLL·설정 파일의 쓰기·삭제·ACL 변경 권한이 없는지를 실제 Windows access check로 확인합니다. 또한 AMD64 PE32+, COR header 부재, NativeAOT runtime export, .NET bundle signature 부재, 정확한 build stamp와 관리형 sidecar 부재를 모두 확인하므로 표식만 복사한 관리형 apphost도 승격하지 않습니다. 검증한 image handle은 프로세스 생성이 끝날 때까지 쓰기·삭제 공유 없이 유지합니다. 사용자가 UAC를 거부하거나 실행·연결에 실패하면 재귀 인덱스로 안전하게 폴백하고, 같은 앱 세션에서는 승격 요청을 반복하지 않습니다. 여러 앱 프로세스의 helper 작업도 세션·설치 경로별 파일 lock으로 직렬화해 중복 UAC를 막고, 다른 RDP/콘솔 세션이나 side-by-side 설치와는 분리합니다. 정상 실행된 helper는 연결을 기다리는 상태가 5분 동안 이어지면 종료되며, 이후 native 접근이 다시 필요하면 앱이 새 UAC 동의를 받아 재실행할 수 있습니다.
+
+`build-exe.bat`는 framework-dependent WPF 앱과 self-contained NativeAOT helper를 디버그 심볼 없이 `publish\win-x64`에 sibling으로 함께 publish합니다. helper용 JSON 경로는 source generation을 사용하며 게시 시 trimming/AOT 경고 없이 생성됩니다.
+
+```powershell
+.\build-exe.bat
+& ".\publish\win-x64\Waffle.Browse.App.exe"
+```
+
+portable publish 디렉터리는 일반 사용자가 수정할 수 있으므로 그 위치에서는 자동 승격이 의도적으로 비활성화됩니다. native helper 자동 실행은 installer가 전체 배포 트리를 보호된 `Program Files` 위치에 설치한 제품 배포에서만 사용합니다. installer의 ACL 강제, NativeAOT 표식 기록 이후의 코드 서명, 업데이트·제거 수명주기는 아직 남은 작업입니다.
+
+명시적으로 인덱싱할 네트워크 공유는 `%LocalAppData%\Waffle Browse\settings.json`의 `IndexedNetworkRoots` 배열에 UNC 경로로 추가합니다. 대형 인덱스 저장소와 protocol v2를 포함한 후속 항목은 [native file index 계획](docs/waffle-native-file-index-plan.md)에 정리되어 있습니다.
 
 ## 현재 한계 / 향후 계획
 

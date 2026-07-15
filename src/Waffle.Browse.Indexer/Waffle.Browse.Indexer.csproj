@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Waffle.Browse.Core\Waffle.Browse.Core.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <NativeAotImageMarkerFile>$(MSBuildThisFileDirectory)..\Waffle.Browse.App\Search\NativeAotIndexerImage.marker</NativeAotImageMarkerFile>
+    <CopyOutputSymbolsToPublishDirectory Condition="'$(PublishAot)' == 'true' and '$(CopyOutputSymbolsToPublishDirectory)' == ''">false</CopyOutputSymbolsToPublishDirectory>
+  </PropertyGroup>
+
+  <Target Name="StampNativeAotIndexerImage"
+          AfterTargets="CopyNativeBinary"
+          Condition="'$(PublishAot)' == 'true'">
+    <Error Condition="!Exists('$(NativeAotImageMarkerFile)')"
+           Text="The NativeAOT Indexer image marker source is missing." />
+    <Error Condition="!Exists('$(PublishDir)$(AssemblyName).exe')"
+           Text="The NativeAOT Indexer executable was not produced before stamping." />
+    <ReadLinesFromFile File="$(NativeAotImageMarkerFile)">
+      <Output TaskParameter="Lines" ItemName="_NativeAotImageMarker" />
+    </ReadLinesFromFile>
+    <Error Condition="'@(_NativeAotImageMarker)' == ''"
+           Text="The NativeAOT Indexer image marker is empty." />
+    <Message Text="Stamping the NativeAOT Indexer image contract."
+             Importance="High" />
+    <WriteLinesToFile File="$(PublishDir)$(AssemblyName).exe"
+                      Lines="@(_NativeAotImageMarker)"
+                      Overwrite="false"
+                      Encoding="ASCII" />
+  </Target>
+
+</Project>

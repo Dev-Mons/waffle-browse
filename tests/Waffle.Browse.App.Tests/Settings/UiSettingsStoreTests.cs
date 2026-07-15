@@ -25,12 +25,24 @@ internal static class UiSettingsStoreTests
         var tempFile = Path.Combine(Path.GetTempPath(), "waffle-browse-tests", Guid.NewGuid().ToString("N"), "settings.json");
         var store = new UiSettingsStore(tempFile);
 
-        store.Save(new UiSettings { Theme = UiTheme.Dark, LastSelectedSearchScope = SearchScope.CurrentFolder });
+        store.Save(new UiSettings
+        {
+            Theme = UiTheme.Dark,
+            LastSelectedSearchScope = SearchScope.CurrentFolder,
+            IndexedNetworkRoots = [@"\\server\share"]
+        });
         var loaded = store.Load();
 
         if (loaded.LastSelectedSearchScope != SearchScope.CurrentFolder)
         {
             throw new InvalidOperationException("Search scope should be persisted.");
+        }
+
+
+        if (loaded.IndexedNetworkRoots.Count != 1
+            || loaded.IndexedNetworkRoots[0] != @"\\server\share")
+        {
+            throw new InvalidOperationException("Explicitly configured network index roots should be persisted.");
         }
     }
 

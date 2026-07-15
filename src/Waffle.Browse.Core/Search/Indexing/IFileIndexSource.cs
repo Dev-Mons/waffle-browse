@@ -12,3 +12,11 @@ public interface IFileIndexSource
         IReadOnlyList<string> roots,
         CancellationToken cancellationToken = default);
 }
+
+public interface IFileIndexSnapshotSource : IFileIndexSource
+{
+    Task<FileIndexBuildResult> RefreshAsync(
+        IReadOnlyList<string> roots,
+        FileIndexSnapshot baseline,
+        CancellationToken cancellationToken = default);
+}

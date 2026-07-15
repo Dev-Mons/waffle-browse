@@ -3,8 +3,6 @@ namespace Waffle.Browse.Core.Search.Indexing;
 public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
 {
     public const string ProviderId = "waffle-index";
-    private const int MaxWarningSummaryCount = 3;
-    private const int MaxWarningSummaryLength = 160;
 
     private readonly FileSearchIndex index = new();
     private readonly IFileIndexSource source;
@@ -17,11 +15,18 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
     private readonly CancellationTokenSource lifetimeCancellation = new();
     private readonly object stateGate = new();
     private readonly List<FileSystemWatcher> watchers = [];
+    private readonly HashSet<string> watchedRoots = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> pendingRefreshRoots = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<FileIndexChange> pendingChanges = [];
+    private readonly Dictionary<string, List<string>> warningsByRoot =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<string> unscopedWarnings = [];
     private CancellationTokenSource? persistenceDelay;
+    private Timer? networkRevalidationTimer;
     private FileIndexState state = FileIndexState.Empty;
     private bool initialized;
     private bool rebuildInProgress;
+    private bool refreshWorkerRunning;
     private bool disposed;
 
     public WaffleFileSearchProvider(
@@ -58,6 +63,7 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
+        FileIndexSnapshot? baseline = null;
         await initializeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -71,6 +77,7 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
             var load = await store.LoadAsync(cancellationToken).ConfigureAwait(false);
             if (load is { Kind: FileIndexLoadKind.Loaded, Snapshot: { } snapshot })
             {
+                baseline = snapshot;
                 index.Replace(snapshot.Entries);
                 SetState(snapshot.State with
                 {
@@ -90,25 +97,54 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
 
             initialized = true;
             StartWatchers();
+            StartNetworkRevalidation();
         }
         finally
         {
             initializeGate.Release();
         }
 
-        await RebuildAsync(cancellationToken).ConfigureAwait(false);
+        await RebuildAsync(baseline, cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task RebuildAsync(CancellationToken cancellationToken = default)
+    public Task RebuildAsync(CancellationToken cancellationToken = default) =>
+        RebuildAsync(baseline: null, cancellationToken);
+
+    private Task RefreshRootsAsync(
+        IReadOnlyList<string> refreshRoots,
+        CancellationToken cancellationToken) =>
+        RebuildAsync(baseline: null, cancellationToken, refreshRoots);
+
+    private async Task RebuildAsync(
+        FileIndexSnapshot? baseline,
+        CancellationToken cancellationToken,
+        IReadOnlyList<string>? refreshRoots = null)
     {
+        if (refreshRoots is { Count: 0 })
+        {
+            return;
+        }
+
         await rebuildGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             ObjectDisposedException.ThrowIf(disposed, this);
-            FileIndexState stateBeforeRebuild;
+            IReadOnlyList<string> buildRoots = roots;
+            FileIndexSnapshot? mergeBaseline = null;
             lock (stateGate)
             {
-                stateBeforeRebuild = state;
+                if (refreshRoots is not null)
+                {
+                    buildRoots = refreshRoots
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+                    mergeBaseline = new FileIndexSnapshot(
+                        FileIndexSnapshot.CurrentFormatVersion,
+                        state with { ItemCount = index.Count },
+                        index.Snapshot());
+                    baseline = mergeBaseline;
+                }
+
                 rebuildInProgress = true;
                 pendingChanges.Clear();
                 state = state with
@@ -119,76 +155,111 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
                 };
             }
 
-            var completedGenerationPublished = false;
             try
             {
-                var result = await source.BuildAsync(roots, cancellationToken).ConfigureAwait(false);
-                var replacement = index.PrepareReplacement(result.Entries, cancellationToken);
-                var warning = SummarizeBuildWarnings(result);
+                var result = baseline is not null && source is IFileIndexSnapshotSource snapshotSource
+                    ? await snapshotSource.RefreshAsync(buildRoots, baseline, cancellationToken).ConfigureAwait(false)
+                    : await source.BuildAsync(buildRoots, cancellationToken).ConfigureAwait(false);
+                var effectiveResult = mergeBaseline is null
+                    ? result
+                    : MergeRefreshedRoots(mergeBaseline, buildRoots, result);
+                var replacement = FileSearchIndex.PrepareReplacement(effectiveResult.Entries);
+                var nativeRoots = effectiveResult.Checkpoints
+                    .Where(IsNativeJournalCheckpoint)
+                    .Select(checkpoint => checkpoint.RootPath)
+                    .ToList();
+                var refreshNativeRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
                 lock (stateGate)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    index.ReplaceAndApply(replacement, pendingChanges, cancellationToken);
+                    UpdateTrackedWarnings(buildRoots, result, replaceAll: mergeBaseline is null);
+                    var warning = BuildTrackedWarning();
+                    var nonNativeChanges = pendingChanges
+                        .Where(change =>
+                        {
+                            var nativeRoot = nativeRoots.FirstOrDefault(root => IsWithinRoot(change.Path, root));
+                            if (nativeRoot is null)
+                            {
+                                return true;
+                            }
+
+                            refreshNativeRoots.Add(nativeRoot);
+                            return false;
+                        })
+                        .ToList();
+                    index.ReplacePrepared(replacement, nonNativeChanges);
                     pendingChanges.Clear();
-                    rebuildInProgress = false;
                     state = new FileIndexState(
                         FileIndexBuildState.Ready,
-                        stateBeforeRebuild.Generation + 1,
+                        state.Generation + 1,
                         index.Count,
                         DateTimeOffset.UtcNow,
-                        result.Checkpoints,
+                        effectiveResult.Checkpoints,
                         warning);
+                    rebuildInProgress = false;
                 }
 
-                completedGenerationPublished = true;
+                StartWatchers();
+                foreach (var root in refreshNativeRoots)
+                {
+                    ScheduleRootRefresh(root);
+                }
+
                 await PersistAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
+                var appliedBufferedChanges = false;
                 lock (stateGate)
                 {
-                    rebuildInProgress = false;
-                    if (!completedGenerationPublished)
-                    {
-                        if (HasCompletedGeneration(stateBeforeRebuild))
-                        {
-                            index.Apply(pendingChanges);
-                            state = stateBeforeRebuild with
-                            {
-                                BuildState = FileIndexBuildState.Ready,
-                                ItemCount = index.Count
-                            };
-                        }
-                        else
-                        {
-                            state = FileIndexState.Empty;
-                        }
-                    }
-
-                    pendingChanges.Clear();
-                }
-
-                throw;
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
-            {
-                lock (stateGate)
-                {
-                    var hasCompletedGeneration = HasCompletedGeneration(stateBeforeRebuild);
-                    if (hasCompletedGeneration)
+                    var hasPublishedGeneration = state.Generation > 0 || state.LastCompletedAt is not null;
+                    if (hasPublishedGeneration && pendingChanges.Count > 0)
                     {
                         index.Apply(pendingChanges);
+                        appliedBufferedChanges = true;
                     }
 
                     rebuildInProgress = false;
                     pendingChanges.Clear();
                     state = state with
                     {
-                        BuildState = hasCompletedGeneration ? FileIndexBuildState.Ready : FileIndexBuildState.Failed,
+                        BuildState = hasPublishedGeneration ? FileIndexBuildState.Ready : FileIndexBuildState.Empty,
+                        ItemCount = index.Count
+                    };
+                }
+
+                if (appliedBufferedChanges)
+                {
+                    SchedulePersistence();
+                }
+
+                throw;
+            }
+            catch (Exception ex)
+            {
+                var appliedBufferedChanges = false;
+                lock (stateGate)
+                {
+                    var hasPublishedGeneration = state.Generation > 0 || state.LastCompletedAt is not null;
+                    if (hasPublishedGeneration && pendingChanges.Count > 0)
+                    {
+                        index.Apply(pendingChanges);
+                        appliedBufferedChanges = true;
+                    }
+
+                    rebuildInProgress = false;
+                    pendingChanges.Clear();
+                    state = state with
+                    {
+                        BuildState = hasPublishedGeneration ? FileIndexBuildState.Ready : FileIndexBuildState.Failed,
                         ItemCount = index.Count,
                         ErrorMessage = ex.Message
                     };
+                }
+
+                if (appliedBufferedChanges)
+                {
+                    SchedulePersistence();
                 }
             }
         }
@@ -197,42 +268,6 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
             rebuildGate.Release();
         }
     }
-
-    private static string? SummarizeBuildWarnings(FileIndexBuildResult result)
-    {
-        var summaries = new List<string>();
-        if (result.SkippedPathCount > 0)
-        {
-            summaries.Add($"일부 경로를 건너뜀: {result.SkippedPathCount:N0}개");
-        }
-
-        var warnings = result.Warnings
-            .Where(warning => !string.IsNullOrWhiteSpace(warning))
-            .Select(warning => warning.Trim())
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-        if (warnings.Count > 0)
-        {
-            var displayed = warnings
-                .Take(MaxWarningSummaryCount)
-                .Select(TruncateWarning);
-            var omittedCount = warnings.Count - MaxWarningSummaryCount;
-            var omitted = omittedCount > 0 ? $" (외 {omittedCount:N0}개)" : string.Empty;
-            summaries.Add($"경고: {string.Join(" | ", displayed)}{omitted}");
-        }
-
-        return summaries.Count == 0 ? null : string.Join("; ", summaries);
-    }
-
-    private static string TruncateWarning(string warning) =>
-        warning.Length <= MaxWarningSummaryLength
-            ? warning
-            : warning[..(MaxWarningSummaryLength - 3)] + "...";
-
-    private static bool HasCompletedGeneration(FileIndexState candidate) =>
-        candidate.BuildState == FileIndexBuildState.Ready
-        || candidate.Generation > 0
-        || candidate.LastCompletedAt is not null;
 
     public Task<SearchProviderStatus> CheckStatusAsync(CancellationToken cancellationToken = default)
     {
@@ -249,13 +284,21 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
 
     private void StartWatchers()
     {
-        if (!watchChanges || watchers.Count > 0)
+        if (!watchChanges)
         {
             return;
         }
 
         foreach (var root in roots.Where(Directory.Exists))
         {
+            lock (stateGate)
+            {
+                if (!watchedRoots.Add(root))
+                {
+                    continue;
+                }
+            }
+
             try
             {
                 var watcher = new FileSystemWatcher(root)
@@ -268,51 +311,106 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
                     InternalBufferSize = 64 * 1024,
                     EnableRaisingEvents = false
                 };
-                watcher.Created += OnCreated;
-                watcher.Changed += OnChanged;
+                watcher.Created += OnCreatedOrChanged;
+                watcher.Changed += OnCreatedOrChanged;
                 watcher.Deleted += OnDeleted;
                 watcher.Renamed += OnRenamed;
                 watcher.Error += OnWatcherError;
                 watcher.EnableRaisingEvents = true;
-                watchers.Add(watcher);
+                lock (stateGate)
+                {
+                    if (disposed)
+                    {
+                        watcher.EnableRaisingEvents = false;
+                        watcher.Dispose();
+                        watchedRoots.Remove(root);
+                        continue;
+                    }
+
+                    watchers.Add(watcher);
+                }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
             {
+                lock (stateGate)
+                {
+                    watchedRoots.Remove(root);
+                }
+
                 SetState(State with { ErrorMessage = $"변경 감시를 시작하지 못했습니다: {ex.Message}" });
             }
         }
     }
 
-    private void OnCreated(object sender, FileSystemEventArgs e)
+    private void OnCreatedOrChanged(object sender, FileSystemEventArgs e)
     {
+        if (FindNativeJournalRoot(e.FullPath) is { } nativeRoot)
+        {
+            ScheduleRootRefresh(nativeRoot);
+            return;
+        }
+
         if (RecursiveFileIndexSource.TryReadEntry(e.FullPath) is { } entry)
         {
             ApplyChange(FileIndexChange.Upsert(entry));
         }
     }
 
-    private void OnChanged(object sender, FileSystemEventArgs e)
+    private void OnDeleted(object sender, FileSystemEventArgs e)
     {
-        if (RecursiveFileIndexSource.TryReadEntry(e.FullPath) is { } entry)
+        if (FindNativeJournalRoot(e.FullPath) is { } nativeRoot)
         {
-            ApplyChange(FileIndexChange.UpdateMetadata(entry));
+            ScheduleRootRefresh(nativeRoot);
+            return;
         }
+
+        ApplyChange(FileIndexChange.Delete(e.FullPath));
     }
 
-    private void OnDeleted(object sender, FileSystemEventArgs e) =>
-        ApplyChange(FileIndexChange.Delete(e.FullPath));
+    private void OnRenamed(object sender, RenamedEventArgs e)
+    {
+        var oldNativeRoot = FindNativeJournalRoot(e.OldFullPath);
+        var newNativeRoot = FindNativeJournalRoot(e.FullPath);
+        if (oldNativeRoot is not null || newNativeRoot is not null)
+        {
+            if (oldNativeRoot is not null)
+            {
+                ScheduleRootRefresh(oldNativeRoot);
+            }
 
-    private void OnRenamed(object sender, RenamedEventArgs e) =>
+            if (newNativeRoot is not null)
+            {
+                ScheduleRootRefresh(newNativeRoot);
+            }
+
+            return;
+        }
+
         ApplyChange(FileIndexChange.Rename(e.OldFullPath, e.FullPath));
+    }
 
     private void OnWatcherError(object sender, ErrorEventArgs e)
     {
+        FileSystemWatcher? failedWatcher = null;
         lock (stateGate)
         {
             if (disposed)
             {
                 return;
             }
+
+            if (sender is FileSystemWatcher watcher)
+            {
+                failedWatcher = watcher;
+                watchers.Remove(watcher);
+                watchedRoots.Remove(watcher.Path);
+            }
+        }
+
+        if (failedWatcher is not null)
+        {
+            failedWatcher.EnableRaisingEvents = false;
+            failedWatcher.Dispose();
         }
 
         SetState(State with
@@ -364,6 +462,11 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
         CancellationToken token;
         lock (stateGate)
         {
+            if (disposed)
+            {
+                return;
+            }
+
             persistenceDelay?.Cancel();
             persistenceDelay?.Dispose();
             persistenceDelay = new CancellationTokenSource();
@@ -371,6 +474,111 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
         }
 
         _ = PersistAfterDelayAsync(token);
+    }
+
+    internal void ScheduleRootRefresh(string root)
+    {
+        lock (stateGate)
+        {
+            if (disposed)
+            {
+                return;
+            }
+
+            pendingRefreshRoots.Add(root);
+            if (refreshWorkerRunning)
+            {
+                return;
+            }
+
+            refreshWorkerRunning = true;
+        }
+
+        _ = RefreshRootsLoopAsync();
+    }
+
+    private void StartNetworkRevalidation()
+    {
+        if (!watchChanges
+            || networkRevalidationTimer is not null
+            || !roots.Any(root => root.StartsWith(@"\\", StringComparison.Ordinal)))
+        {
+            return;
+        }
+
+        networkRevalidationTimer = new Timer(
+            _ =>
+            {
+                foreach (var root in roots.Where(root => root.StartsWith(@"\\", StringComparison.Ordinal)))
+                {
+                    ScheduleRootRefresh(root);
+                }
+            },
+            null,
+            TimeSpan.FromMinutes(1),
+            TimeSpan.FromMinutes(5));
+    }
+
+    private async Task RefreshRootsLoopAsync()
+    {
+        try
+        {
+            while (true)
+            {
+                await Task.Delay(
+                    TimeSpan.FromMilliseconds(250),
+                    lifetimeCancellation.Token).ConfigureAwait(false);
+
+                IReadOnlyList<string> refreshRoots;
+                lock (stateGate)
+                {
+                    if (disposed)
+                    {
+                        refreshWorkerRunning = false;
+                        return;
+                    }
+
+                    refreshRoots = pendingRefreshRoots.ToList();
+                    pendingRefreshRoots.Clear();
+                }
+
+                await RefreshRootsAsync(refreshRoots, lifetimeCancellation.Token).ConfigureAwait(false);
+
+                lock (stateGate)
+                {
+                    if (pendingRefreshRoots.Count == 0)
+                    {
+                        refreshWorkerRunning = false;
+                        return;
+                    }
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            lock (stateGate)
+            {
+                refreshWorkerRunning = false;
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+            lock (stateGate)
+            {
+                refreshWorkerRunning = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            lock (stateGate)
+            {
+                refreshWorkerRunning = false;
+                if (!disposed)
+                {
+                    state = state with { ErrorMessage = $"인덱스 갱신을 완료하지 못했습니다: {ex.Message}" };
+                }
+            }
+        }
     }
 
     private async Task PersistAfterDelayAsync(CancellationToken cancellationToken)
@@ -397,11 +605,10 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
             FileIndexSnapshot snapshot;
             lock (stateGate)
             {
-                var entries = index.Snapshot();
                 snapshot = new FileIndexSnapshot(
                     FileIndexSnapshot.CurrentFormatVersion,
-                    state with { ItemCount = entries.Count },
-                    entries);
+                    state with { ItemCount = index.Count },
+                    index.Snapshot());
             }
 
             await store.SaveAsync(snapshot, cancellationToken).ConfigureAwait(false);
@@ -418,6 +625,152 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
         {
             state = next;
         }
+    }
+
+    private static FileIndexBuildResult MergeRefreshedRoots(
+        FileIndexSnapshot baseline,
+        IReadOnlyList<string> refreshedRoots,
+        FileIndexBuildResult refreshed)
+    {
+        var entries = baseline.Entries
+            .Where(entry => !refreshedRoots.Any(root => IsWithinRoot(entry.FullPath, root)))
+            .Concat(refreshed.Entries)
+            .ToList();
+        var checkpoints = baseline.State.Checkpoints
+            .Where(checkpoint => !refreshedRoots.Any(root =>
+                IsWithinRoot(checkpoint.RootPath, root)))
+            .ToList();
+        checkpoints = checkpoints
+            .Concat(refreshed.Checkpoints)
+            .ToList();
+        return new FileIndexBuildResult(
+            entries,
+            checkpoints,
+            refreshed.Warnings,
+            refreshed.SkippedPathCount);
+    }
+
+    private void UpdateTrackedWarnings(
+        IReadOnlyList<string> refreshedRoots,
+        FileIndexBuildResult result,
+        bool replaceAll)
+    {
+        if (replaceAll)
+        {
+            warningsByRoot.Clear();
+        }
+
+        var normalizedRoots = refreshedRoots
+            .Select(root => (Original: root, Normalized: NormalizeWarningRoot(root)))
+            .DistinctBy(root => root.Normalized, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        foreach (var root in normalizedRoots)
+        {
+            warningsByRoot.Remove(root.Normalized);
+        }
+
+        // Unscoped warnings cannot safely be attributed to an unaffected root.
+        // Drop them after any successful refresh rather than keeping stale state.
+        unscopedWarnings.Clear();
+        foreach (var warning in result.Warnings)
+        {
+            var owner = normalizedRoots
+                .OrderByDescending(root => root.Original.Length)
+                .FirstOrDefault(root => warning.StartsWith(
+                    root.Original + ":",
+                    StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrEmpty(owner.Normalized))
+            {
+                AddTrackedWarning(owner.Normalized, warning);
+            }
+            else if (normalizedRoots.Count == 1)
+            {
+                AddTrackedWarning(normalizedRoots[0].Normalized, warning);
+            }
+            else
+            {
+                unscopedWarnings.Add(warning);
+            }
+        }
+
+        if (result.SkippedPathCount > 0 && result.Warnings.Count == 0)
+        {
+            var warning = $"일부 경로를 건너뜀: {result.SkippedPathCount:N0}개";
+            if (normalizedRoots.Count == 1)
+            {
+                AddTrackedWarning(normalizedRoots[0].Normalized, warning);
+            }
+            else
+            {
+                unscopedWarnings.Add(warning);
+            }
+        }
+    }
+
+    private void AddTrackedWarning(string normalizedRoot, string warning)
+    {
+        if (!warningsByRoot.TryGetValue(normalizedRoot, out var warnings))
+        {
+            warnings = [];
+            warningsByRoot.Add(normalizedRoot, warnings);
+        }
+
+        warnings.Add(warning);
+    }
+
+    private string? BuildTrackedWarning()
+    {
+        var warnings = warningsByRoot.Values
+            .SelectMany(value => value)
+            .Concat(unscopedWarnings)
+            .ToList();
+        if (warnings.Count == 0)
+        {
+            return null;
+        }
+
+        var remaining = warnings.Count - 1;
+        var suffix = remaining > 0 ? $" (외 {remaining:N0}개)" : string.Empty;
+        return warnings[0] + suffix;
+    }
+
+    private static string NormalizeWarningRoot(string root)
+    {
+        var fullPath = Path.GetFullPath(root);
+        var pathRoot = Path.GetPathRoot(fullPath);
+        return string.Equals(fullPath, pathRoot, StringComparison.OrdinalIgnoreCase)
+            ? fullPath
+            : fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
+
+    private string? FindNativeJournalRoot(string path) =>
+        State.Checkpoints
+            .Where(IsNativeJournalCheckpoint)
+            .Select(checkpoint => checkpoint.RootPath)
+            .FirstOrDefault(root => IsWithinRoot(path, root));
+
+    private static bool IsNativeJournalCheckpoint(FileIndexCheckpoint checkpoint) =>
+        checkpoint.JournalId is not null
+        && checkpoint.NextUsn is not null
+        && string.Equals(checkpoint.FileSystem, "NTFS", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsWithinRoot(string path, string root)
+    {
+        var normalizedPath = Path.GetFullPath(path);
+        var normalizedRoot = Path.GetFullPath(root);
+        if (!string.Equals(normalizedRoot, Path.GetPathRoot(normalizedRoot), StringComparison.OrdinalIgnoreCase))
+        {
+            normalizedRoot = normalizedRoot.TrimEnd(
+                Path.DirectorySeparatorChar,
+                Path.AltDirectorySeparatorChar);
+        }
+
+        return string.Equals(normalizedPath, normalizedRoot, StringComparison.OrdinalIgnoreCase)
+            || normalizedPath.StartsWith(
+                normalizedRoot.EndsWith(Path.DirectorySeparatorChar)
+                    ? normalizedRoot
+                    : normalizedRoot + Path.DirectorySeparatorChar,
+                StringComparison.OrdinalIgnoreCase);
     }
 
     private static SearchProviderStatus ToProviderStatus(FileIndexState current)
@@ -450,6 +803,7 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
 
     public void Dispose()
     {
+        List<FileSystemWatcher> watchersToDispose;
         lock (stateGate)
         {
             if (disposed)
@@ -462,19 +816,23 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
             persistenceDelay?.Cancel();
             persistenceDelay?.Dispose();
             persistenceDelay = null;
+            pendingRefreshRoots.Clear();
+            networkRevalidationTimer?.Dispose();
+            networkRevalidationTimer = null;
+            watchersToDispose = [.. watchers];
+            watchers.Clear();
+            watchedRoots.Clear();
         }
 
-        foreach (var watcher in watchers)
+        foreach (var watcher in watchersToDispose)
         {
             watcher.EnableRaisingEvents = false;
-            watcher.Created -= OnCreated;
-            watcher.Changed -= OnChanged;
+            watcher.Created -= OnCreatedOrChanged;
+            watcher.Changed -= OnCreatedOrChanged;
             watcher.Deleted -= OnDeleted;
             watcher.Renamed -= OnRenamed;
             watcher.Error -= OnWatcherError;
             watcher.Dispose();
         }
-
-        watchers.Clear();
     }
 }

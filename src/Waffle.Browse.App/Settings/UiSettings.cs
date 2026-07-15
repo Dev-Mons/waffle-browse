@@ -7,4 +7,6 @@ public sealed record UiSettings
     public UiTheme Theme { get; init; } = UiTheme.Light;
 
     public SearchScope LastSelectedSearchScope { get; init; } = SearchScope.GlobalIndex;
+
+    public IReadOnlyList<string> IndexedNetworkRoots { get; init; } = [];
 }

@@ -1,15 +1,10 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Waffle.Browse.Core.Search.Indexing;
 
 public sealed class JsonFileIndexStore : IFileIndexStore
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-        WriteIndented = false
-    };
-
     private readonly string filePath;
 
     public JsonFileIndexStore(string filePath)
@@ -33,7 +28,10 @@ public sealed class JsonFileIndexStore : IFileIndexStore
                 FileShare.Read,
                 64 * 1024,
                 FileOptions.Asynchronous | FileOptions.SequentialScan);
-            var snapshot = await JsonSerializer.DeserializeAsync<FileIndexSnapshot>(stream, JsonOptions, cancellationToken)
+            var snapshot = await JsonSerializer.DeserializeAsync(
+                    stream,
+                    FileIndexStoreJsonContext.Default.FileIndexSnapshot,
+                    cancellationToken)
                 .ConfigureAwait(false);
             if (snapshot is null || snapshot.FormatVersion != FileIndexSnapshot.CurrentFormatVersion)
             {
@@ -120,7 +118,12 @@ public sealed class JsonFileIndexStore : IFileIndexStore
                 64 * 1024,
                 FileOptions.Asynchronous | FileOptions.SequentialScan))
             {
-                await JsonSerializer.SerializeAsync(stream, snapshot, JsonOptions, cancellationToken).ConfigureAwait(false);
+                await JsonSerializer.SerializeAsync(
+                        stream,
+                        snapshot,
+                        FileIndexStoreJsonContext.Default.FileIndexSnapshot,
+                        cancellationToken)
+                    .ConfigureAwait(false);
                 await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
             }
 
@@ -141,3 +144,9 @@ public sealed class JsonFileIndexStore : IFileIndexStore
         }
     }
 }
+
+[JsonSourceGenerationOptions(
+    WriteIndented = false,
+    PropertyNameCaseInsensitive = true)]
+[JsonSerializable(typeof(FileIndexSnapshot))]
+internal sealed partial class FileIndexStoreJsonContext : JsonSerializerContext;

@@ -36,5 +36,5 @@ public sealed record FileIndexSnapshot(
     FileIndexState State,
     IReadOnlyList<FileIndexEntry> Entries)
 {
-    public const int CurrentFormatVersion = 2;
+    public const int CurrentFormatVersion = 3;
 }
