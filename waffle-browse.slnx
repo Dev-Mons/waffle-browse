@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Waffle.Browse.App/Waffle.Browse.App.csproj" />
+    <Project Path="src/Waffle.Browse.Core/Waffle.Browse.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Waffle.Browse.App.Tests/Waffle.Browse.App.Tests.csproj" />
+    <Project Path="tests/Waffle.Browse.Core.Tests/Waffle.Browse.Core.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,104 @@
+<Window x:Class="Waffle.Browse.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:docking="clr-namespace:Waffle.Browse.App.Docking"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="Waffle Browse"
+        MinHeight="520"
+        MinWidth="860"
+        Height="720"
+        Width="1180"
+        Icon="Assets/AppIcon.ico"
+        Loaded="OnLoaded"
+        Closing="OnClosing"
+        Background="{DynamicResource WindowBackgroundBrush}"
+        Foreground="{DynamicResource PrimaryTextBrush}">
+    <DockPanel LastChildFill="True">
+        <Border DockPanel.Dock="Top"
+                Background="{DynamicResource ToolbarBackgroundBrush}"
+                BorderBrush="{DynamicResource PanelBorderBrush}"
+                BorderThickness="0,0,0,1"
+                Padding="10,3">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Text="Waffle Browse"
+                           VerticalAlignment="Center"
+                           FontSize="18"
+                           FontWeight="SemiBold"
+                           Foreground="{DynamicResource PrimaryTextBrush}" />
+
+                <DockPanel Grid.Column="1"
+                           Margin="16,0"
+                           LastChildFill="True">
+                    <StackPanel DockPanel.Dock="Left"
+                                Orientation="Horizontal"
+                                VerticalAlignment="Center">
+                        <TextBox x:Name="QuickSearchBox"
+                                 AutomationProperties.AutomationId="QuickSearchBox"
+                                 Width="260"
+                                 MinHeight="24"
+                                 VerticalContentAlignment="Center"
+                                 TextChanged="OnQuickSearchTextChanged"
+                                 KeyDown="OnQuickSearchKeyDown" />
+                        <Button Content="검색"
+                                AutomationProperties.AutomationId="QuickSearchButton"
+                                Margin="6,0,0,0"
+                                Click="OnQuickSearchClick" />
+                    </StackPanel>
+
+                    <TextBlock x:Name="StatusText"
+                               AutomationProperties.AutomationId="StatusText"
+                               Margin="14,0,0,0"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource SubtleTextBrush}"
+                               TextTrimming="CharacterEllipsis" />
+                </DockPanel>
+
+                <StackPanel Grid.Column="2"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Center">
+                    <ToggleButton x:Name="DarkModeToggle"
+                                  AutomationProperties.AutomationId="DarkModeToggle"
+                                  Content="Dark"
+                                  ToolTip="Dark mode"
+                                  Checked="OnThemeToggleChanged"
+                                  Unchecked="OnThemeToggleChanged" />
+                    <Button Content="1"
+                            AutomationProperties.AutomationId="OnePanelButton"
+                            ToolTip="Single panel"
+                            Click="OnOnePanelClick" />
+                    <Button Content="2H"
+                            AutomationProperties.AutomationId="TwoColumnButton"
+                            ToolTip="Two columns"
+                            Click="OnTwoColumnClick" />
+                    <Button Content="2V"
+                            AutomationProperties.AutomationId="TwoRowButton"
+                            ToolTip="Two rows"
+                            Click="OnTwoRowClick" />
+                    <Button Content="3"
+                            AutomationProperties.AutomationId="ThreePanelButton"
+                            ToolTip="Three panel preset"
+                            Click="OnThreePanelClick" />
+                    <Button Content="4"
+                            AutomationProperties.AutomationId="FourPanelButton"
+                            ToolTip="Four panel grid"
+                            Click="OnFourPanelClick" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Grid x:Name="WorkspaceRoot"
+              AutomationProperties.AutomationId="WorkspaceRoot"
+              Margin="0">
+            <Grid x:Name="WorkspaceGrid" />
+            <docking:DockPreviewOverlay x:Name="DockPreviewOverlay" />
+        </Grid>
+    </DockPanel>
+</Window>
