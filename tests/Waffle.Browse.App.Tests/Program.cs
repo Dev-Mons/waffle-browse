@@ -7,9 +7,7 @@ using Waffle.Browse.App.Tests.Theming;
 
 var tests = new (string Name, Action Run)[]
 {
-    ("Search toolbar exposes Everything scope selector", MainWindowSearchToolbarTests.SearchToolbarExposesEverythingScopeSelector),
-    ("Everything global query preserves syntax", EverythingQueryBuilderTests.GlobalSearchPreservesEverythingSyntax),
-    ("Everything current-folder query prefixes path", EverythingQueryBuilderTests.CurrentFolderSearchPrefixesRecursivePath),
+    ("Search toolbar exposes Waffle scope selector", MainWindowSearchToolbarTests.SearchToolbarExposesWaffleScopeSelector),
     ("Late search response cannot replace latest search", LatestSearchRequestCoordinatorTests.LateResponseCannotReplaceLatestSearch),
     ("Shell native theme applies dark theme to root and descendants", ShellNativeThemeApplierTests.ApplyDarkThemeThemesRootAndDescendants),
     ("Shell native theme restores Explorer theme for light mode", ShellNativeThemeApplierTests.ApplyLightThemeRestoresExplorerTheme),

@@ -271,7 +271,7 @@ internal static class DockLayoutServiceTests
         TestAssert.Equal("report", tab.SearchQuery, "Search query should be stored on the tab");
         TestAssert.Equal(@"C:\Work", tab.SearchOriginPath, "Search origin should be the folder that was searched");
         TestAssert.Equal(SearchScope.GlobalIndex, tab.SearchScope, "Global search scope should be stored on the tab");
-        TestAssert.True(tab.CurrentPath.StartsWith("waffle-search:", StringComparison.Ordinal), "Search should use an internal Everything target");
+        TestAssert.True(tab.CurrentPath.StartsWith("waffle-search:", StringComparison.Ordinal), "Search should use an internal Waffle target");
         TestAssert.Equal(@"C:\Work", tab.BackStack[^1], "Back should return to the searched folder");
     }
 

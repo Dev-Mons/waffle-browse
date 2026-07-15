@@ -23,26 +23,31 @@ internal static class LatestSearchRequestCoordinatorTests
         }
     }
 
-    private sealed class DeferredFakeSearchService : IEverythingSearchService
+    private sealed class DeferredFakeSearchService : ISearchProvider
     {
-        private readonly Dictionary<string, TaskCompletionSource<EverythingSearchResponse>> requests = [];
+        private readonly Dictionary<string, TaskCompletionSource<SearchResponse>> requests = [];
 
-        public Task<EverythingAvailability> CheckAvailabilityAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult(new EverythingAvailability(EverythingAvailabilityKind.Available, "available"));
+        public string Id => "fake";
 
-        public Task<EverythingSearchResponse> SearchAsync(SearchQuery query, CancellationToken cancellationToken)
+        public string DisplayName => "Fake";
+
+        public Task<SearchProviderStatus> CheckStatusAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(SearchProviderStatus.Ready("available"));
+
+        public Task<SearchResponse> SearchAsync(SearchQuery query, CancellationToken cancellationToken = default)
         {
-            var completion = new TaskCompletionSource<EverythingSearchResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var completion = new TaskCompletionSource<SearchResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
             requests.Add(query.Text, completion);
             return completion.Task;
         }
 
         public void Complete(string query)
         {
-            requests[query].SetResult(new EverythingSearchResponse(
+            requests[query].SetResult(new SearchResponse(
                 [],
                 0,
-                new EverythingAvailability(EverythingAvailabilityKind.Available, "available")));
+                SearchProviderStatus.Ready("available"),
+                Id));
         }
     }
 }

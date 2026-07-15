@@ -49,9 +49,15 @@ var tests = new (string Name, Action Run)[]
     ("Restore creates grid for legacy visible-panel state", DockLayoutStoreTests.RestoreCreatesGridWhenSavedStateHasOnlyVisiblePanels),
     ("Restore normalization rebuilds search tabs", DockLayoutStoreTests.RestoreNormalizationRebuildsSearchTabs),
     ("Restore normalization converts invalid search tabs to fallback folders", DockLayoutStoreTests.RestoreNormalizationConvertsInvalidSearchTabsToFallbackFolders),
-    ("Everything global search location round-trips", EverythingSearchLocationTests.GlobalLocationRoundTrips),
-    ("Everything current-folder location round-trips", EverythingSearchLocationTests.CurrentFolderLocationRoundTrips),
-    ("Everything current-folder location requires a root", EverythingSearchLocationTests.CurrentFolderLocationRequiresRoot),
+    ("Waffle global search location round-trips", WaffleSearchLocationTests.GlobalLocationRoundTrips),
+    ("Waffle current-folder location round-trips", WaffleSearchLocationTests.CurrentFolderLocationRoundTrips),
+    ("Waffle current-folder location requires a root", WaffleSearchLocationTests.CurrentFolderLocationRequiresRoot),
+    ("File index searches names and paths within scope", FileSearchIndexTests.SearchesNameAndPathWithScopeAndLimit),
+    ("File index applies create delete and rename changes", FileSearchIndexTests.AppliesCreateDeleteAndDirectoryRename),
+    ("File index sorts folders first and caps results", FileSearchIndexTests.SortsFoldersFirstAndCapsResults),
+    ("Waffle provider builds persists and tracks file changes", WaffleFileSearchProviderTests.BuildsPersistsAndTracksFileChanges),
+    ("Waffle provider safely rebuilds corrupt persistence", WaffleFileSearchProviderTests.CorruptPersistenceTriggersSafeRebuild),
+    ("Recursive index build honors cancellation", WaffleFileSearchProviderTests.RecursiveBuildHonorsCancellation),
 };
 
 var failed = 0;

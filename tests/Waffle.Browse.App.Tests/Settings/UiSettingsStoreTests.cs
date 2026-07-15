@@ -33,4 +33,5 @@ internal static class UiSettingsStoreTests
             throw new InvalidOperationException("Search scope should be persisted.");
         }
     }
+
 }

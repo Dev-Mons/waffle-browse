@@ -100,7 +100,7 @@ internal static class DockLayoutStoreTests
         var tab = normalized.FindPanel(panel.Id).ActiveTab!;
 
         TestAssert.Equal(TabLocationKind.Search, tab.LocationKind, "Valid search tabs should remain search tabs after restore");
-        TestAssert.Equal(@"waffle-search:?query=report&scope=CurrentFolder&root=C%3A%5CValid", tab.CurrentPath, "Restore should migrate legacy search state to Everything");
+        TestAssert.Equal(@"waffle-search:?query=report&scope=CurrentFolder&root=C%3A%5CValid", tab.CurrentPath, "Restore should migrate legacy search state to Waffle search");
         TestAssert.Equal(@"C:\Valid", tab.SearchOriginPath, "Restore should keep the search origin");
     }
 

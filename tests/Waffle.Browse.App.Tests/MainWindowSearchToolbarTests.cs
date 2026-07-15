@@ -4,7 +4,7 @@ namespace Waffle.Browse.App.Tests;
 
 internal static class MainWindowSearchToolbarTests
 {
-    public static void SearchToolbarExposesEverythingScopeSelector()
+    public static void SearchToolbarExposesWaffleScopeSelector()
     {
         var xaml = File.ReadAllText(FindRepositoryFile(@"src\Waffle.Browse.App\MainWindow.xaml"));
 

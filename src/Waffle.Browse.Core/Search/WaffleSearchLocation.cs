@@ -1,6 +1,6 @@
 namespace Waffle.Browse.Core.Search;
 
-public static class EverythingSearchLocation
+public static class WaffleSearchLocation
 {
     private const string Prefix = "waffle-search:?";
 

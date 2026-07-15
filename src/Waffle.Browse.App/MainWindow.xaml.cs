@@ -17,6 +17,7 @@ using Waffle.Browse.Core.Docking;
 using Waffle.Browse.Core.Navigation;
 using Waffle.Browse.Core.Persistence;
 using Waffle.Browse.Core.Search;
+using Waffle.Browse.Core.Search.Indexing;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Threading;
@@ -53,7 +54,8 @@ public partial class MainWindow : Window
     private readonly DockDropTargetResolver dropTargetResolver = new();
     private readonly DockLayoutStore layoutStore;
     private readonly UiSettingsStore settingsStore;
-    private readonly EverythingSearchService everythingSearchService = new();
+    private readonly WaffleFileSearchProvider waffleFileSearchProvider;
+    private readonly CancellationTokenSource indexCancellation = new();
     private readonly DispatcherTimer searchDebounceTimer;
     private readonly WindowNativeThemeApplier windowNativeThemeApplier = new();
     private readonly NativeFocusEventTracer nativeFocusEventTracer = new();
@@ -73,6 +75,10 @@ public partial class MainWindow : Window
         layoutStore = new DockLayoutStore(Path.Combine(appDataPath, "layout.json"));
         settingsStore = new UiSettingsStore(Path.Combine(appDataPath, "settings.json"));
         layoutState = layoutService.CreateDefault(fallbackPath);
+        waffleFileSearchProvider = new WaffleFileSearchProvider(
+            new RecursiveFileIndexSource(),
+            new JsonFileIndexStore(Path.Combine(appDataPath, "search-index-v1.json")),
+            ResolveIndexRoots(fallbackPath));
 
         InitializeComponent();
         searchDebounceTimer = new DispatcherTimer(DispatcherPriority.Background)
@@ -104,6 +110,7 @@ public partial class MainWindow : Window
         RenderLayout();
         UpdateSearchBoxFromActiveTab();
         SetStatus("Layout restored.");
+        _ = InitializeFileIndexAsync();
     }
 
     private void OnClosing(object? sender, CancelEventArgs e)
@@ -115,7 +122,9 @@ public partial class MainWindow : Window
             panelControl.Dispose();
         }
         panelControlsById.Clear();
-        everythingSearchService.Dispose();
+        indexCancellation.Cancel();
+        waffleFileSearchProvider.Dispose();
+        indexCancellation.Dispose();
         ComponentDispatcher.ThreadFilterMessage -= OnThreadFilterMessage;
         SaveSettings();
         SaveLayout();
@@ -487,7 +496,7 @@ public partial class MainWindow : Window
 
     private ExplorerPanelControl CreatePanelControl(PanelState panel)
     {
-        var control = new ExplorerPanelControl(panel, layoutState.ActivePanelId == panel.Id, everythingSearchService);
+        var control = new ExplorerPanelControl(panel, layoutState.ActivePanelId == panel.Id, waffleFileSearchProvider);
         panelControlsById[panel.Id] = control;
         control.NavigationRequested += OnPanelNavigationRequested;
         control.PathSubmitted += OnPanelPathSubmitted;
@@ -1296,6 +1305,51 @@ public partial class MainWindow : Window
     private SearchScope ResolveSelectedSearchScope()
     {
         return SearchScopeBox.SelectedIndex == 1 ? SearchScope.CurrentFolder : SearchScope.GlobalIndex;
+    }
+
+    private async Task InitializeFileIndexAsync()
+    {
+        try
+        {
+            await waffleFileSearchProvider.InitializeAsync(indexCancellation.Token);
+            var status = await waffleFileSearchProvider.CheckStatusAsync(indexCancellation.Token);
+            SetStatus(status.Message);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Waffle 인덱스를 준비하지 못했습니다: {ex.Message}");
+        }
+    }
+
+    private static IReadOnlyList<string> ResolveIndexRoots(string fallback)
+    {
+        var roots = new List<string>();
+        try
+        {
+            foreach (var drive in DriveInfo.GetDrives())
+            {
+                try
+                {
+                    if (drive.IsReady
+                        && drive.DriveType == DriveType.Fixed
+                        && string.Equals(drive.DriveFormat, "NTFS", StringComparison.OrdinalIgnoreCase))
+                    {
+                        roots.Add(drive.RootDirectory.FullName);
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                }
+            }
+        }
+        catch (IOException)
+        {
+        }
+
+        return roots.Count > 0 ? roots : [fallback];
     }
 
     private void ApplyTheme(UiTheme theme)

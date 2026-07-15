@@ -4,13 +4,13 @@ namespace Waffle.Browse.App.Search;
 
 public sealed class LatestSearchRequestCoordinator : IDisposable
 {
-    private readonly IEverythingSearchService searchService;
+    private readonly ISearchProvider searchService;
     private readonly object syncRoot = new();
     private CancellationTokenSource? currentCancellation;
     private long currentVersion;
     private bool disposed;
 
-    public LatestSearchRequestCoordinator(IEverythingSearchService searchService)
+    public LatestSearchRequestCoordinator(ISearchProvider searchService)
     {
         this.searchService = searchService;
     }
@@ -84,4 +84,4 @@ public sealed class LatestSearchRequestCoordinator : IDisposable
 
 public sealed record LatestSearchRequestResult(
     bool IsCurrent,
-    EverythingSearchResponse Response);
+    SearchResponse Response);

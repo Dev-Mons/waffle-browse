@@ -18,25 +18,21 @@ public partial class ExplorerPanelControl : UserControl, IDisposable
     private Point? dragStartPoint;
     private Guid? dragCandidateTabId;
     private ShellExplorerHost shellHost;
-    private readonly EverythingSearchResultsView searchResultsView;
-    private readonly bool ownsSearchService;
-    private readonly IEverythingSearchService searchService;
+    private readonly SearchResultsView searchResultsView;
     private string currentShellPath = string.Empty;
     private UiTheme currentTheme = UiTheme.Light;
     private bool isActivePanel;
     private bool disposed;
 
-    public ExplorerPanelControl(PanelState panel, bool isActive, IEverythingSearchService? searchService = null)
+    public ExplorerPanelControl(PanelState panel, bool isActive, ISearchProvider? searchService = null)
     {
         Panel = panel;
-        var resolvedSearchService = searchService ?? new EverythingSearchService();
-        this.searchService = resolvedSearchService;
-        ownsSearchService = searchService is null;
+        var resolvedSearchService = searchService ?? UnavailableSearchProvider.Instance;
         InitializeComponent();
 
         shellHost = CreateShellHost();
         ShellHostContainer.Content = shellHost;
-        searchResultsView = new EverythingSearchResultsView(resolvedSearchService);
+        searchResultsView = new SearchResultsView(resolvedSearchService);
         searchResultsView.ResultActionRequested += OnSearchResultActionRequested;
         searchResultsView.StatusChanged += OnSearchStatusChanged;
         SearchResultsContainer.Content = searchResultsView;
@@ -280,10 +276,24 @@ public partial class ExplorerPanelControl : UserControl, IDisposable
             disposableShellHost.Dispose();
         }
 
-        if (ownsSearchService && searchService is IDisposable disposableSearchService)
-        {
-            disposableSearchService.Dispose();
-        }
+    }
+
+    private sealed class UnavailableSearchProvider : ISearchProvider
+    {
+        public static UnavailableSearchProvider Instance { get; } = new();
+
+        public string Id => "unavailable";
+
+        public string DisplayName => "검색 비활성";
+
+        public Task<SearchProviderStatus> CheckStatusAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(new SearchProviderStatus(SearchProviderStatusKind.Unavailable, "검색 인덱스가 연결되지 않았습니다.", false));
+
+        public Task<SearchResponse> SearchAsync(SearchQuery query, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new SearchResponse([], 0, new SearchProviderStatus(
+                SearchProviderStatusKind.Unavailable,
+                "검색 인덱스가 연결되지 않았습니다.",
+                false), Id));
     }
 
     private static bool PathEquals(string left, string right)

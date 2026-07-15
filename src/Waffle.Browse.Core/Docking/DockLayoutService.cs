@@ -114,7 +114,7 @@ public sealed class DockLayoutService
         var rootPath = searchQuery.Scope == SearchScope.CurrentFolder
             ? searchQuery.RootPath ?? originPath
             : null;
-        var searchTarget = EverythingSearchLocation.Build(query, searchQuery.Scope, rootPath);
+        var searchTarget = WaffleSearchLocation.Build(query, searchQuery.Scope, rootPath);
         var backStack = tab.BackStack.ToList();
         if (tab.LocationKind != TabLocationKind.Search && ShouldPushHistory(backStack, originPath))
         {
@@ -204,7 +204,7 @@ public sealed class DockLayoutService
         }
 
         var nextPath = tab.ForwardStack[0];
-        if (EverythingSearchLocation.TryParse(nextPath, out var searchQuery))
+        if (WaffleSearchLocation.TryParse(nextPath, out var searchQuery))
         {
             var originPath = searchQuery.RootPath ?? tab.CurrentPath;
             var updatedSearchTab = tab with

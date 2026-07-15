@@ -120,7 +120,7 @@ public sealed class DockLayoutStore
 
         return tab with
         {
-            CurrentPath = EverythingSearchLocation.Build(query, scope, rootPath),
+            CurrentPath = WaffleSearchLocation.Build(query, scope, rootPath),
             Title = DockLayoutService.CreateSearchTitle(query),
             LocationKind = TabLocationKind.Search,
             SearchQuery = query,
@@ -188,6 +188,6 @@ public sealed class DockLayoutStore
 
     private static bool IsHistoryAvailable(string value, Func<string, bool> isPathAvailable)
     {
-        return EverythingSearchLocation.TryParse(value, out _) || IsAvailable(value, isPathAvailable);
+        return WaffleSearchLocation.TryParse(value, out _) || IsAvailable(value, isPathAvailable);
     }
 }

@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -10,7 +9,7 @@ using Waffle.Browse.App.Search;
 
 namespace Waffle.Browse.App.Controls;
 
-public partial class EverythingSearchResultsView : UserControl, IDisposable
+public partial class SearchResultsView : UserControl, IDisposable
 {
     private readonly LatestSearchRequestCoordinator requestCoordinator;
     private readonly DispatcherTimer refreshTimer;
@@ -21,7 +20,7 @@ public partial class EverythingSearchResultsView : UserControl, IDisposable
     private bool disposed;
     private Window? ownerWindow;
 
-    public EverythingSearchResultsView(IEverythingSearchService searchService)
+    public SearchResultsView(ISearchProvider searchService)
     {
         requestCoordinator = new LatestSearchRequestCoordinator(searchService);
         InitializeComponent();
@@ -124,10 +123,14 @@ public partial class EverythingSearchResultsView : UserControl, IDisposable
 
             var response = requestResult.Response;
 
-            ShowAvailability(response.Availability);
-            if (!response.Availability.IsAvailable)
+            ShowStatus(response.Status);
+            if (!response.Status.CanSearch)
             {
-                ResultStatusText.Text = currentResults.Count == 0 ? "검색을 사용할 수 없습니다." : "기존 결과를 표시하고 있습니다.";
+                ResultStatusText.Text = response.Status.Kind is SearchProviderStatusKind.Initializing or SearchProviderStatusKind.Rebuilding
+                    ? "Waffle 인덱스를 준비하는 중입니다."
+                    : currentResults.Count == 0
+                        ? "검색을 사용할 수 없습니다."
+                        : "기존 결과를 표시하고 있습니다.";
                 return;
             }
 
@@ -144,11 +147,11 @@ public partial class EverythingSearchResultsView : UserControl, IDisposable
         }
         catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException or BadImageFormatException or Win32Exception)
         {
-            ShowAvailability(new EverythingAvailability(EverythingAvailabilityKind.Error, ex.Message));
+            ShowStatus(new SearchProviderStatus(SearchProviderStatusKind.Error, ex.Message, false));
         }
         catch (Exception ex)
         {
-            ShowAvailability(new EverythingAvailability(EverythingAvailabilityKind.Error, ex.Message));
+            ShowStatus(new SearchProviderStatus(SearchProviderStatusKind.Error, ex.Message, false));
         }
         finally
         {
@@ -160,22 +163,17 @@ public partial class EverythingSearchResultsView : UserControl, IDisposable
         }
     }
 
-    private void ShowAvailability(EverythingAvailability availability)
+    private void ShowStatus(SearchProviderStatus status)
     {
-        AvailabilityPanel.Visibility = availability.IsAvailable ? Visibility.Collapsed : Visibility.Visible;
-        AvailabilityText.Text = availability.Message;
-        if (!availability.IsAvailable)
+        AvailabilityPanel.Visibility = status.CanSearch ? Visibility.Collapsed : Visibility.Visible;
+        AvailabilityText.Text = status.Message;
+        if (!status.CanSearch)
         {
-            StatusChanged?.Invoke(this, availability.Message);
+            StatusChanged?.Invoke(this, status.Message);
         }
     }
 
     private void OnRetryClick(object sender, RoutedEventArgs e) => _ = RefreshAsync(cancelPrevious: true);
-
-    private void OnDownloadClick(object sender, RoutedEventArgs e)
-    {
-        Process.Start(new ProcessStartInfo("https://www.voidtools.com/ko-kr/downloads/") { UseShellExecute = true });
-    }
 
     private void OnResultDoubleClick(object sender, MouseButtonEventArgs e) => RequestSelectedAction(SearchResultAction.Open);
 
