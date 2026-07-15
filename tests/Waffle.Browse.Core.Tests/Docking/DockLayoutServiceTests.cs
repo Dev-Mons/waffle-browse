@@ -1,5 +1,6 @@
 using Waffle.Browse.Core.Docking;
 using Waffle.Browse.Core.Navigation;
+using Waffle.Browse.Core.Search;
 
 namespace Waffle.Browse.Core.Tests.Docking;
 
@@ -262,16 +263,15 @@ internal static class DockLayoutServiceTests
         state = service.NavigateToSearch(
             state,
             panel.Id,
-            "report",
-            [@"C:\Work"],
-            @"search-ms:query=report&crumb=location:C%3A%5CWork,include,recursive");
+            new SearchQuery("report", SearchScope.GlobalIndex, 1000));
         var tab = state.FindPanel(panel.Id).ActiveTab!;
 
         TestAssert.Equal(TabLocationKind.Search, tab.LocationKind, "Search should mark the active tab as a search location");
         TestAssert.Equal("검색: report", tab.Title, "Search tab title should show the query");
         TestAssert.Equal("report", tab.SearchQuery, "Search query should be stored on the tab");
         TestAssert.Equal(@"C:\Work", tab.SearchOriginPath, "Search origin should be the folder that was searched");
-        TestAssert.Equal(1, tab.SearchRoots.Count, "Search roots should be stored on the tab");
+        TestAssert.Equal(SearchScope.GlobalIndex, tab.SearchScope, "Global search scope should be stored on the tab");
+        TestAssert.True(tab.CurrentPath.StartsWith("waffle-search:", StringComparison.Ordinal), "Search should use an internal Everything target");
         TestAssert.Equal(@"C:\Work", tab.BackStack[^1], "Back should return to the searched folder");
     }
 
@@ -284,9 +284,7 @@ internal static class DockLayoutServiceTests
         state = service.NavigateToSearch(
             state,
             panel.Id,
-            "report",
-            [@"C:\Work"],
-            @"search-ms:query=report&crumb=location:C%3A%5CWork,include,recursive");
+            new SearchQuery("report", SearchScope.CurrentFolder, 1000, @"C:\Work"));
         state = service.ClearSearch(state, panel.Id);
         var tab = state.FindPanel(panel.Id).ActiveTab!;
 
@@ -295,6 +293,22 @@ internal static class DockLayoutServiceTests
         TestAssert.Equal(null, tab.SearchQuery, "Clearing search should remove the query metadata");
         TestAssert.Equal(null, tab.SearchOriginPath, "Clearing search should remove the origin metadata");
         TestAssert.Equal(0, tab.SearchRoots.Count, "Clearing search should remove the search roots");
+    }
+
+    public static void SearchNavigationSupportsBackAndForward()
+    {
+        var service = new DockLayoutService();
+        var state = service.CreateDefault(@"C:\Work");
+        var panel = state.VisiblePanels[0];
+
+        state = service.NavigateToSearch(state, panel.Id, new SearchQuery("report", SearchScope.GlobalIndex, 1000));
+        state = service.NavigateBack(state, panel.Id);
+        TestAssert.Equal(TabLocationKind.Folder, state.FindPanel(panel.Id).ActiveTab!.LocationKind, "Back should restore the origin folder");
+
+        state = service.NavigateForward(state, panel.Id);
+        var tab = state.FindPanel(panel.Id).ActiveTab!;
+        TestAssert.Equal(TabLocationKind.Search, tab.LocationKind, "Forward should restore the search tab");
+        TestAssert.Equal("report", tab.SearchQuery, "Forward should restore the search query");
     }
 
     public static void ClosingLastTabRemovesPanelFromLayout()

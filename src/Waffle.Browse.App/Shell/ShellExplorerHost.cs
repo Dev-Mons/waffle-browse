@@ -12,9 +12,6 @@ namespace Waffle.Browse.App.Shell;
 public sealed class ShellExplorerHost : HwndHost
 {
     private static readonly Guid ExplorerBrowserClsid = new("71F96385-DDD6-48D3-A0C1-AE06E8B055FB");
-    private static readonly Guid SearchFolderItemFactoryClsid = new("14010E02-BBBD-41F0-88E3-EDA371216584");
-    private static readonly Guid ConditionFactoryClsid = new("E03E85B0-7BE3-4000-BA98-6C13DE9FA486");
-    private static readonly Guid ShellItemIid = new("43826D1E-E718-42EE-BC55-A1E261C37BFE");
     private static readonly Guid ShellViewIid = new("000214E3-0000-0000-C000-000000000046");
     private static readonly Guid FolderViewIid = new("CDE725B0-CCC9-4519-917E-325D72FAB4CE");
     private static readonly Guid FolderView2Iid = new("1AF3A467-214F-4298-908E-06B03E0B39F9");
@@ -24,7 +21,6 @@ public sealed class ShellExplorerHost : HwndHost
     private const int WsClipSiblings = 0x04000000;
     private const int WsClipChildren = 0x02000000;
     private const int WmSetFocus = 0x0007;
-    private const ushort VariantTypeWideString = 31;
     private const uint SvgioSelection = 0x1;
 
     private IExplorerBrowser? browser;
@@ -36,7 +32,6 @@ public sealed class ShellExplorerHost : HwndHost
     private IntPtr hostWindow;
     private IntPtr shellViewWindow;
     private string pendingPath;
-    private PendingSearch? pendingSearch;
 
     public ShellExplorerHost(string initialPath)
     {
@@ -193,7 +188,6 @@ public sealed class ShellExplorerHost : HwndHost
     public void Navigate(string path)
     {
         pendingPath = path;
-        pendingSearch = null;
         if (browser is null || string.IsNullOrWhiteSpace(path))
         {
             return;
@@ -202,21 +196,6 @@ public sealed class ShellExplorerHost : HwndHost
         if (!BrowseToPath(path))
         {
             NavigationFailed?.Invoke(this, path);
-        }
-    }
-
-    public void NavigateToSearch(string searchTarget, string queryText, IReadOnlyList<string> roots)
-    {
-        pendingPath = searchTarget;
-        pendingSearch = new PendingSearch(queryText, roots.ToList());
-        if (browser is null || string.IsNullOrWhiteSpace(searchTarget))
-        {
-            return;
-        }
-
-        if (!BrowseToSearchFolder(searchTarget, queryText, roots))
-        {
-            NavigationFailed?.Invoke(this, searchTarget);
         }
     }
 
@@ -259,9 +238,7 @@ public sealed class ShellExplorerHost : HwndHost
             {
                 if (browser is not null && !string.IsNullOrWhiteSpace(pendingPath))
                 {
-                    var navigated = pendingSearch is { } search
-                        ? BrowseToSearchFolder(pendingPath, search.QueryText, search.Roots)
-                        : BrowseToPath(pendingPath);
+                    var navigated = BrowseToPath(pendingPath);
                     if (!navigated)
                     {
                         NavigationFailed?.Invoke(this, pendingPath);
@@ -351,127 +328,6 @@ public sealed class ShellExplorerHost : HwndHost
                 ILFree(pidl);
             }
         }
-    }
-
-    private bool BrowseToSearchFolder(string searchTarget, string queryText, IReadOnlyList<string> roots)
-    {
-        IShellItemArray? scope = null;
-        ICondition? condition = null;
-        object? searchItem = null;
-        object? factoryObject = null;
-        try
-        {
-            scope = CreateScope(roots);
-            condition = CreateSearchCondition(queryText);
-            factoryObject = CreateSearchFolderItemFactory();
-            var factory = (ISearchFolderItemFactory)factoryObject;
-            factory.SetDisplayName($"Search results for {queryText}");
-            factory.SetScope(scope);
-            factory.SetCondition(condition);
-            var shellItemIid = ShellItemIid;
-            factory.GetShellItem(ref shellItemIid, out searchItem);
-            browser?.BrowseToObject(searchItem, 0);
-            return true;
-        }
-        catch (COMException)
-        {
-            return false;
-        }
-        catch (ArgumentException)
-        {
-            return false;
-        }
-        catch (InvalidCastException)
-        {
-            return false;
-        }
-        catch (InvalidOperationException)
-        {
-            return false;
-        }
-        finally
-        {
-            ReleaseComObject(searchItem);
-            ReleaseComObject(condition);
-            ReleaseComObject(scope);
-            ReleaseComObject(factoryObject);
-        }
-    }
-
-    private static IShellItemArray CreateScope(IReadOnlyList<string> roots)
-    {
-        if (roots.Count == 0)
-        {
-            throw new ArgumentException("At least one search root is required.", nameof(roots));
-        }
-
-        var pidls = new IntPtr[roots.Count];
-        try
-        {
-            for (var index = 0; index < roots.Count; index++)
-            {
-                SHParseDisplayName(roots[index], IntPtr.Zero, out pidls[index], 0, out _);
-            }
-
-            SHCreateShellItemArrayFromIDLists((uint)pidls.Length, pidls, out var scope);
-            return scope;
-        }
-        finally
-        {
-            foreach (var pidl in pidls)
-            {
-                if (pidl != IntPtr.Zero)
-                {
-                    ILFree(pidl);
-                }
-            }
-        }
-    }
-
-    private static ICondition CreateSearchCondition(string queryText)
-    {
-        var conditionFactoryObject = CreateConditionFactory();
-        var conditionFactory = (IConditionFactory)conditionFactoryObject;
-        var value = PropVariant.FromString(queryText);
-        var operation = queryText.IndexOfAny(['*', '?']) >= 0
-            ? ConditionOperation.ValueMatchesWildcard
-            : ConditionOperation.ValueContains;
-
-        try
-        {
-            conditionFactory.MakeLeaf(
-                "System.ItemNameDisplay",
-                operation,
-                null,
-                ref value,
-                IntPtr.Zero,
-                IntPtr.Zero,
-                IntPtr.Zero,
-                true,
-                out var condition);
-            return condition;
-        }
-        finally
-        {
-            value.Dispose();
-            ReleaseComObject(conditionFactoryObject);
-        }
-    }
-
-    private static object CreateSearchFolderItemFactory()
-    {
-        var type = Type.GetTypeFromCLSID(SearchFolderItemFactoryClsid, throwOnError: true)
-            ?? throw new InvalidOperationException("SearchFolderItemFactory COM type was not found.");
-        return Activator.CreateInstance(type)
-            ?? throw new InvalidOperationException("SearchFolderItemFactory COM object could not be created.");
-    }
-
-    private static object CreateConditionFactory()
-    {
-        var type = Type.GetTypeFromCLSID(ConditionFactoryClsid, throwOnError: true)
-            ?? throw new InvalidOperationException("ConditionFactory COM type was not found.");
-        return Activator.CreateInstance(type)
-            ?? throw new InvalidOperationException("ConditionFactory COM object could not be created.");
     }
 
     private static void ReleaseComObject(object? instance)
@@ -658,12 +514,6 @@ public sealed class ShellExplorerHost : HwndHost
     [DllImport("shell32.dll")]
     private static extern void ILFree(IntPtr pidl);
 
-    [DllImport("shell32.dll", PreserveSig = false)]
-    private static extern void SHCreateShellItemArrayFromIDLists(
-        uint cidl,
-        [MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 0)] IntPtr[] rgpidl,
-        [MarshalAs(UnmanagedType.Interface)] out IShellItemArray ppsiItemArray);
-
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SHGetPathFromIDList(IntPtr pidl, StringBuilder pszPath);
@@ -674,73 +524,6 @@ public sealed class ShellExplorerHost : HwndHost
             ?? throw new InvalidOperationException("ExplorerBrowser COM type was not found.");
         return (IExplorerBrowser)(Activator.CreateInstance(explorerBrowserType)
             ?? throw new InvalidOperationException("ExplorerBrowser COM object could not be created."));
-    }
-
-    [ComImport]
-    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    [Guid("A0FFBC28-5482-4366-BE27-3E81E78E06C2")]
-    private interface ISearchFolderItemFactory
-    {
-        void SetDisplayName([MarshalAs(UnmanagedType.LPWStr)] string pszDisplayName);
-
-        void SetFolderTypeID(ref Guid ftid);
-
-        void SetFolderLogicalViewMode(FolderLogicalViewMode flvm);
-
-        void SetIconSize(int iIconSize);
-
-        void SetVisibleColumns(uint cVisibleColumns, IntPtr rgKey);
-
-        void SetSortColumns(uint cSortColumns, IntPtr rgSortColumns);
-
-        void SetGroupColumn(ref PropertyKey keyGroup);
-
-        void SetStacks(uint cStackKeys, IntPtr rgStackKeys);
-
-        void SetScope([MarshalAs(UnmanagedType.Interface)] IShellItemArray psiaScope);
-
-        void SetCondition([MarshalAs(UnmanagedType.Interface)] ICondition pCondition);
-
-        void GetShellItem(ref Guid riid, [MarshalAs(UnmanagedType.Interface)] out object ppv);
-
-        void GetIDList(out IntPtr ppidl);
-    }
-
-    [ComImport]
-    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    [Guid("B63EA76D-1F85-456F-A19C-48159EFA858B")]
-    private interface IShellItemArray
-    {
-    }
-
-    [ComImport]
-    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    [Guid("0FC988D4-C935-4B97-A973-46282EA175C8")]
-    private interface ICondition
-    {
-    }
-
-    [ComImport]
-    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    [Guid("A5EFE073-B16F-474f-9F3E-9F8B497A3E08")]
-    private interface IConditionFactory
-    {
-        void MakeNot([MarshalAs(UnmanagedType.Interface)] ICondition pcSub, [MarshalAs(UnmanagedType.Bool)] bool fSimplify, [MarshalAs(UnmanagedType.Interface)] out ICondition ppcResult);
-
-        void MakeAndOr(ConditionType ct, IntPtr peusubs, [MarshalAs(UnmanagedType.Bool)] bool fSimplify, [MarshalAs(UnmanagedType.Interface)] out ICondition ppcResult);
-
-        void MakeLeaf(
-            [MarshalAs(UnmanagedType.LPWStr)] string pszPropertyName,
-            ConditionOperation cop,
-            [MarshalAs(UnmanagedType.LPWStr)] string? pszValueType,
-            ref PropVariant ppropvar,
-            IntPtr pPropertyNameTerm,
-            IntPtr pOperationTerm,
-            IntPtr pValueTerm,
-            [MarshalAs(UnmanagedType.Bool)] bool fExpand,
-            [MarshalAs(UnmanagedType.Interface)] out ICondition ppcResult);
-
-        void Resolve([MarshalAs(UnmanagedType.Interface)] ICondition pc, uint sqro, IntPtr pstReferenceTime, [MarshalAs(UnmanagedType.Interface)] out ICondition ppcResolved);
     }
 
     [ComImport]
@@ -1037,15 +820,6 @@ public sealed class ShellExplorerHost : HwndHost
         private IntPtr value;
         private IntPtr value2;
 
-        public static PropVariant FromString(string text)
-        {
-            return new PropVariant
-            {
-                vt = VariantTypeWideString,
-                value = Marshal.StringToCoTaskMemUni(text)
-            };
-        }
-
         public void Dispose()
         {
             if (value != IntPtr.Zero)
@@ -1055,8 +829,6 @@ public sealed class ShellExplorerHost : HwndHost
             }
         }
     }
-
-    private sealed record PendingSearch(string QueryText, IReadOnlyList<string> Roots);
 
     private enum FolderViewMode : uint
     {
@@ -1076,25 +848,4 @@ public sealed class ShellExplorerHost : HwndHost
         None = 0,
     }
 
-    private enum FolderLogicalViewMode
-    {
-        Unspecified = -1,
-        First = 1,
-        Details = 4
-    }
-
-    private enum ConditionType
-    {
-        And = 0,
-        Or = 1,
-        Not = 2,
-        Leaf = 3
-    }
-
-    private enum ConditionOperation
-    {
-        ValueEndsWith = 8,
-        ValueContains = 9,
-        ValueMatchesWildcard = 11
-    }
 }

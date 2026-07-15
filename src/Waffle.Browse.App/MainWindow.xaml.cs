@@ -10,11 +10,13 @@ using Waffle.Browse.App.Diagnostics;
 using Waffle.Browse.App.Controls;
 using Waffle.Browse.App.Docking;
 using Waffle.Browse.App.Settings;
+using Waffle.Browse.App.Search;
 using Waffle.Browse.App.Shell;
 using Waffle.Browse.App.Theming;
 using Waffle.Browse.Core.Docking;
 using Waffle.Browse.Core.Navigation;
 using Waffle.Browse.Core.Persistence;
+using Waffle.Browse.Core.Search;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Threading;
@@ -51,7 +53,8 @@ public partial class MainWindow : Window
     private readonly DockDropTargetResolver dropTargetResolver = new();
     private readonly DockLayoutStore layoutStore;
     private readonly UiSettingsStore settingsStore;
-    private readonly ShellSearchTargetResolver shellSearchTargetResolver;
+    private readonly EverythingSearchService everythingSearchService = new();
+    private readonly DispatcherTimer searchDebounceTimer;
     private readonly WindowNativeThemeApplier windowNativeThemeApplier = new();
     private readonly NativeFocusEventTracer nativeFocusEventTracer = new();
     private readonly string fallbackPath;
@@ -69,10 +72,14 @@ public partial class MainWindow : Window
         var appDataPath = ApplicationDataPath.Resolve();
         layoutStore = new DockLayoutStore(Path.Combine(appDataPath, "layout.json"));
         settingsStore = new UiSettingsStore(Path.Combine(appDataPath, "settings.json"));
-        shellSearchTargetResolver = new ShellSearchTargetResolver();
         layoutState = layoutService.CreateDefault(fallbackPath);
 
         InitializeComponent();
+        searchDebounceTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromMilliseconds(200)
+        };
+        searchDebounceTimer.Tick += OnSearchDebounceTick;
 
         FocusTraceLogger.StartSession();
         nativeFocusEventTracer.Start((window, objectId, childId) =>
@@ -94,7 +101,6 @@ public partial class MainWindow : Window
         settings = settingsStore.Load();
         ApplySettingsToUi();
         layoutState = layoutStore.LoadOrDefault(fallbackPath, Directory.Exists);
-        layoutState = RefreshSearchTargets(layoutState);
         RenderLayout();
         UpdateSearchBoxFromActiveTab();
         SetStatus("Layout restored.");
@@ -103,6 +109,13 @@ public partial class MainWindow : Window
     private void OnClosing(object? sender, CancelEventArgs e)
     {
         nativeFocusEventTracer.Dispose();
+        searchDebounceTimer.Stop();
+        foreach (var panelControl in panelControlsById.Values)
+        {
+            panelControl.Dispose();
+        }
+        panelControlsById.Clear();
+        everythingSearchService.Dispose();
         ComponentDispatcher.ThreadFilterMessage -= OnThreadFilterMessage;
         SaveSettings();
         SaveLayout();
@@ -149,6 +162,7 @@ public partial class MainWindow : Window
 
     private void OnQuickSearchClick(object sender, RoutedEventArgs e)
     {
+        searchDebounceTimer.Stop();
         RunQuickSearch();
     }
 
@@ -165,16 +179,47 @@ public partial class MainWindow : Window
 
     private void OnQuickSearchTextChanged(object sender, TextChangedEventArgs e)
     {
-        if (isUpdatingSearchBox || !string.IsNullOrWhiteSpace(QuickSearchBox.Text))
+        if (isUpdatingSearchBox)
         {
             return;
         }
 
-        ClearActiveSearch();
+        searchDebounceTimer.Stop();
+        if (string.IsNullOrWhiteSpace(QuickSearchBox.Text))
+        {
+            ClearActiveSearch();
+            return;
+        }
+
+        searchDebounceTimer.Start();
+    }
+
+    private void OnSearchDebounceTick(object? sender, EventArgs e)
+    {
+        searchDebounceTimer.Stop();
+        searchDebounceTimer.Stop();
+        RunQuickSearch();
+    }
+
+    private void OnSearchScopeChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded || isApplyingSettingsToUi)
+        {
+            return;
+        }
+
+        settings = settings with { LastSelectedSearchScope = ResolveSelectedSearchScope() };
+        SaveSettings();
+        if (!string.IsNullOrWhiteSpace(QuickSearchBox.Text))
+        {
+            searchDebounceTimer.Stop();
+            RunQuickSearch();
+        }
     }
 
     private void RunQuickSearch()
     {
+        searchDebounceTimer.Stop();
         var text = QuickSearchBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(text))
         {
@@ -190,7 +235,8 @@ public partial class MainWindow : Window
         }
 
         var roots = ResolveCurrentPanelSearchRoots();
-        if (roots.Count == 0)
+        var scope = ResolveSelectedSearchScope();
+        if (scope == SearchScope.CurrentFolder && roots.Count == 0)
         {
             SetStatus("No searchable folder is open.");
             return;
@@ -198,9 +244,11 @@ public partial class MainWindow : Window
 
         try
         {
-            var searchTarget = shellSearchTargetResolver.Resolve(text, roots);
             ApplyLayout(
-                layoutService.NavigateToSearch(layoutState, panelId.Value, text, roots, searchTarget),
+                layoutService.NavigateToSearch(
+                    layoutState,
+                    panelId.Value,
+                    new SearchQuery(text, scope, 1000, scope == SearchScope.CurrentFolder ? roots[0] : null)),
                 "Search opened in current tab.");
         }
         catch (ArgumentException ex)
@@ -248,50 +296,6 @@ public partial class MainWindow : Window
         return tab?.LocationKind == TabLocationKind.Search
             ? tab.SearchOriginPath
             : tab?.CurrentPath;
-    }
-
-    private DockLayoutState RefreshSearchTargets(DockLayoutState state)
-    {
-        var panels = state.Panels.Select(panel =>
-        {
-            var tabs = panel.Tabs.Select(tab =>
-            {
-                if (tab.LocationKind != TabLocationKind.Search
-                    || string.IsNullOrWhiteSpace(tab.SearchQuery)
-                    || tab.SearchRoots.Count == 0)
-                {
-                    return tab;
-                }
-
-                try
-                {
-                    return tab with
-                    {
-                        CurrentPath = shellSearchTargetResolver.Resolve(tab.SearchQuery, tab.SearchRoots)
-                    };
-                }
-                catch (ArgumentException)
-                {
-                    return tab;
-                }
-                catch (InvalidOperationException)
-                {
-                    return tab;
-                }
-                catch (IOException)
-                {
-                    return tab;
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    return tab;
-                }
-            }).ToList();
-
-            return panel with { Tabs = tabs };
-        }).ToList();
-
-        return state with { Panels = panels };
     }
 
     private void OnThreadFilterMessage(ref MSG msg, ref bool handled)
@@ -433,6 +437,10 @@ public partial class MainWindow : Window
     private void RenderLayout()
     {
         DockPreviewOverlay.EndDragCapture();
+        foreach (var panelControl in panelControlsById.Values)
+        {
+            panelControl.Dispose();
+        }
         panelControlsById.Clear();
         WorkspaceGrid.Children.Clear();
         WorkspaceGrid.RowDefinitions.Clear();
@@ -479,7 +487,7 @@ public partial class MainWindow : Window
 
     private ExplorerPanelControl CreatePanelControl(PanelState panel)
     {
-        var control = new ExplorerPanelControl(panel, layoutState.ActivePanelId == panel.Id);
+        var control = new ExplorerPanelControl(panel, layoutState.ActivePanelId == panel.Id, everythingSearchService);
         panelControlsById[panel.Id] = control;
         control.NavigationRequested += OnPanelNavigationRequested;
         control.PathSubmitted += OnPanelPathSubmitted;
@@ -494,6 +502,8 @@ public partial class MainWindow : Window
         control.TabDragOverPanel += OnTabDragOverPanel;
         control.TabDroppedOnPanel += OnTabDroppedOnPanel;
         control.TabDragCompleted += OnTabDragCompleted;
+        control.SearchResultActionRequested += OnSearchResultActionRequested;
+        control.SearchStatusChanged += OnSearchStatusChanged;
         control.ApplyTheme(settings.Theme);
         return control;
     }
@@ -900,15 +910,15 @@ public partial class MainWindow : Window
             return;
         }
 
-        SetStatus(tab.LocationKind == TabLocationKind.Search
-            ? "Shell search navigation failed."
-            : "Shell navigation failed.");
+        SetStatus("Shell navigation failed.");
     }
 
     private void OnTabAddRequested(object? sender, PanelTabRequestedEventArgs e)
     {
         var panel = layoutState.FindPanel(e.PanelId);
-        var path = panel.ActiveTab?.CurrentPath ?? fallbackPath;
+        var path = panel.ActiveTab is { LocationKind: TabLocationKind.Search } searchTab
+            ? searchTab.SearchOriginPath ?? fallbackPath
+            : panel.ActiveTab?.CurrentPath ?? fallbackPath;
         ApplyLayout(layoutService.AddTab(layoutState, e.PanelId, path), "Tab added.");
     }
 
@@ -927,9 +937,18 @@ public partial class MainWindow : Window
             return;
         }
 
+        var openPath = tab.LocationKind == TabLocationKind.Search
+            ? tab.SearchOriginPath
+            : tab.CurrentPath;
+        if (string.IsNullOrWhiteSpace(openPath))
+        {
+            SetStatus("Tab path is empty.");
+            return;
+        }
+
         try
         {
-            OpenFolderInExplorer(tab.CurrentPath);
+            OpenFolderInExplorer(openPath);
             SetStatus("Tab folder opened.");
         }
         catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
@@ -950,6 +969,57 @@ public partial class MainWindow : Window
         };
         ApplyState(nextState, null);
     }
+
+    private void OnSearchResultActionRequested(object? sender, SearchResultActionRequestedEventArgs e)
+    {
+        if (sender is not ExplorerPanelControl control)
+        {
+            return;
+        }
+
+        var item = e.Item;
+        if (e.Action == SearchResultAction.OpenLocation)
+        {
+            if (!Directory.Exists(item.ParentPath))
+            {
+                SetStatus("결과의 위치가 더 이상 존재하지 않습니다.");
+                return;
+            }
+
+            ApplyLayout(layoutService.NavigateTo(layoutState, control.Panel.Id, item.ParentPath), "결과 위치를 열었습니다.");
+            return;
+        }
+
+        if (item.Kind == SearchItemKind.Folder)
+        {
+            if (!Directory.Exists(item.FullPath))
+            {
+                SetStatus("폴더가 더 이상 존재하지 않습니다.");
+                return;
+            }
+
+            ApplyLayout(layoutService.NavigateTo(layoutState, control.Panel.Id, item.FullPath), "폴더를 열었습니다.");
+            return;
+        }
+
+        if (!File.Exists(item.FullPath))
+        {
+            SetStatus("파일이 더 이상 존재하지 않습니다.");
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(item.FullPath) { UseShellExecute = true });
+            SetStatus("파일을 열었습니다.");
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
+        {
+            SetStatus($"파일을 열 수 없습니다: {ex.Message}");
+        }
+    }
+
+    private void OnSearchStatusChanged(object? sender, string e) => SetStatus(e);
 
     private void OnPanelFocusRequested(object? sender, PanelFocusRequestedEventArgs e)
     {
@@ -1098,6 +1168,7 @@ public partial class MainWindow : Window
         {
             ApplyTheme(settings.Theme);
             DarkModeToggle.IsChecked = settings.Theme == UiTheme.Dark;
+            SearchScopeBox.SelectedIndex = settings.LastSelectedSearchScope == SearchScope.CurrentFolder ? 1 : 0;
         }
         finally
         {
@@ -1109,7 +1180,8 @@ public partial class MainWindow : Window
     {
         settings = settings with
         {
-            Theme = ResolveSelectedTheme()
+            Theme = ResolveSelectedTheme(),
+            LastSelectedSearchScope = ResolveSelectedSearchScope()
         };
 
         try
@@ -1152,11 +1224,25 @@ public partial class MainWindow : Window
 
     private void UpdateSearchBoxFromActiveTab()
     {
-        var text = ActiveOrFirstVisiblePanelId() is { } panelId
-            ? layoutState.FindPanel(panelId).ActiveTab is { LocationKind: TabLocationKind.Search } tab
-                ? tab.SearchQuery ?? string.Empty
-                : string.Empty
+        var activeTab = ActiveOrFirstVisiblePanelId() is { } panelId
+            ? layoutState.FindPanel(panelId).ActiveTab
+            : null;
+        var text = activeTab is { LocationKind: TabLocationKind.Search }
+            ? activeTab.SearchQuery ?? string.Empty
             : string.Empty;
+
+        if (activeTab is { LocationKind: TabLocationKind.Search })
+        {
+            isApplyingSettingsToUi = true;
+            try
+            {
+                SearchScopeBox.SelectedIndex = activeTab.SearchScope == SearchScope.CurrentFolder ? 1 : 0;
+            }
+            finally
+            {
+                isApplyingSettingsToUi = false;
+            }
+        }
 
         if (string.Equals(QuickSearchBox.Text, text, StringComparison.Ordinal))
         {
@@ -1205,6 +1291,11 @@ public partial class MainWindow : Window
     private UiTheme ResolveSelectedTheme()
     {
         return DarkModeToggle.IsChecked == true ? UiTheme.Dark : UiTheme.Light;
+    }
+
+    private SearchScope ResolveSelectedSearchScope()
+    {
+        return SearchScopeBox.SelectedIndex == 1 ? SearchScope.CurrentFolder : SearchScope.GlobalIndex;
     }
 
     private void ApplyTheme(UiTheme theme)

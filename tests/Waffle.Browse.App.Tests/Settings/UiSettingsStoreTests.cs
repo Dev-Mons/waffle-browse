@@ -1,5 +1,6 @@
 using System.IO;
 using Waffle.Browse.App.Settings;
+using Waffle.Browse.Core.Search;
 
 namespace Waffle.Browse.App.Tests.Settings;
 
@@ -19,17 +20,17 @@ internal static class UiSettingsStoreTests
         }
     }
 
-    public static void UiSettingsStoreSavesThemeWithoutSearchScope()
+    public static void UiSettingsStoreRoundTripsSearchScope()
     {
         var tempFile = Path.Combine(Path.GetTempPath(), "waffle-browse-tests", Guid.NewGuid().ToString("N"), "settings.json");
         var store = new UiSettingsStore(tempFile);
 
-        store.Save(new UiSettings { Theme = UiTheme.Dark });
-        var savedJson = File.ReadAllText(tempFile);
+        store.Save(new UiSettings { Theme = UiTheme.Dark, LastSelectedSearchScope = SearchScope.CurrentFolder });
+        var loaded = store.Load();
 
-        if (savedJson.Contains("LastSelectedSearchScope", StringComparison.Ordinal))
+        if (loaded.LastSelectedSearchScope != SearchScope.CurrentFolder)
         {
-            throw new InvalidOperationException("Search scope should not be persisted after the toolbar selector is removed.");
+            throw new InvalidOperationException("Search scope should be persisted.");
         }
     }
 }

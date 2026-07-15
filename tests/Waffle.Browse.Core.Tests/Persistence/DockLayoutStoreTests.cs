@@ -1,5 +1,6 @@
 using Waffle.Browse.Core.Docking;
 using Waffle.Browse.Core.Persistence;
+using Waffle.Browse.Core.Search;
 
 namespace Waffle.Browse.Core.Tests.Persistence;
 
@@ -86,15 +87,20 @@ internal static class DockLayoutStoreTests
         state = service.NavigateToSearch(
             state,
             panel.Id,
-            "report",
-            [@"C:\Valid"],
-            "stale-search-target");
+            new SearchQuery("report", SearchScope.CurrentFolder, 1000, @"C:\Valid"));
+        var searchTab = state.FindPanel(panel.Id).ActiveTab!;
+        state = state with
+        {
+            Panels = state.Panels.Select(item => item.Id == panel.Id
+                ? item with { Tabs = item.Tabs.Select(tab => tab.Id == searchTab.Id ? tab with { CurrentPath = "search-ms:legacy" } : tab).ToList() }
+                : item).ToList()
+        };
 
         var normalized = DockLayoutStore.NormalizeForRestore(state, @"C:\Fallback", path => path == @"C:\Valid");
         var tab = normalized.FindPanel(panel.Id).ActiveTab!;
 
         TestAssert.Equal(TabLocationKind.Search, tab.LocationKind, "Valid search tabs should remain search tabs after restore");
-        TestAssert.Equal(@"search-ms:query=report&crumb=location:C%3A%5CValid,include,recursive", tab.CurrentPath, "Restore should rebuild search target from query and roots");
+        TestAssert.Equal(@"waffle-search:?query=report&scope=CurrentFolder&root=C%3A%5CValid", tab.CurrentPath, "Restore should migrate legacy search state to Everything");
         TestAssert.Equal(@"C:\Valid", tab.SearchOriginPath, "Restore should keep the search origin");
     }
 
@@ -107,9 +113,7 @@ internal static class DockLayoutStoreTests
         state = service.NavigateToSearch(
             state,
             panel.Id,
-            "report",
-            [@"C:\Missing"],
-            "stale-search-target");
+            new SearchQuery("report", SearchScope.CurrentFolder, 1000, @"C:\Missing"));
 
         var normalized = DockLayoutStore.NormalizeForRestore(state, @"C:\Fallback", path => path == @"C:\Fallback");
         var tab = normalized.FindPanel(panel.Id).ActiveTab!;

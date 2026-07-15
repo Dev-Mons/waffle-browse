@@ -1,3 +1,5 @@
+using Waffle.Browse.Core.Search;
+
 namespace Waffle.Browse.Core.Docking;
 
 public sealed record TabState
@@ -13,6 +15,8 @@ public sealed record TabState
     public string? SearchQuery { get; init; }
 
     public string? SearchOriginPath { get; init; }
+
+    public SearchScope SearchScope { get; init; } = SearchScope.GlobalIndex;
 
     public List<string> SearchRoots { get; init; } = [];
 

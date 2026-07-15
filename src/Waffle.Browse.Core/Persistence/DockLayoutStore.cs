@@ -90,9 +90,10 @@ public sealed class DockLayoutStore
             LocationKind = TabLocationKind.Folder,
             SearchQuery = null,
             SearchOriginPath = null,
+            SearchScope = SearchScope.GlobalIndex,
             SearchRoots = [],
-            BackStack = tab.BackStack.Where(pathInHistory => IsAvailable(pathInHistory, availability)).ToList(),
-            ForwardStack = tab.ForwardStack.Where(pathInHistory => IsAvailable(pathInHistory, availability)).ToList()
+            BackStack = tab.BackStack.Where(pathInHistory => IsHistoryAvailable(pathInHistory, availability)).ToList(),
+            ForwardStack = tab.ForwardStack.Where(pathInHistory => IsHistoryAvailable(pathInHistory, availability)).ToList()
         };
     }
 
@@ -107,21 +108,27 @@ public sealed class DockLayoutStore
             ? tab.SearchOriginPath
             : roots.FirstOrDefault();
 
-        if (string.IsNullOrWhiteSpace(query) || string.IsNullOrWhiteSpace(originPath) || roots.Count == 0)
+        if (string.IsNullOrWhiteSpace(query) || string.IsNullOrWhiteSpace(originPath))
         {
             return NormalizeFolderTab(tab, fallbackPath, availability);
         }
 
+        var scope = tab.CurrentPath.StartsWith("search-ms:", StringComparison.OrdinalIgnoreCase)
+            ? SearchScope.CurrentFolder
+            : tab.SearchScope;
+        var rootPath = scope == SearchScope.CurrentFolder ? roots.FirstOrDefault() ?? originPath : null;
+
         return tab with
         {
-            CurrentPath = WindowsSearchLocationBuilder.BuildSearchUri(query, roots),
+            CurrentPath = EverythingSearchLocation.Build(query, scope, rootPath),
             Title = DockLayoutService.CreateSearchTitle(query),
             LocationKind = TabLocationKind.Search,
             SearchQuery = query,
             SearchOriginPath = originPath,
-            SearchRoots = roots,
-            BackStack = tab.BackStack.Where(pathInHistory => IsAvailable(pathInHistory, availability)).ToList(),
-            ForwardStack = tab.ForwardStack.Where(pathInHistory => IsAvailable(pathInHistory, availability)).ToList()
+            SearchScope = scope,
+            SearchRoots = rootPath is null ? [] : [rootPath],
+            BackStack = tab.BackStack.Where(pathInHistory => IsHistoryAvailable(pathInHistory, availability)).ToList(),
+            ForwardStack = tab.ForwardStack.Where(pathInHistory => IsHistoryAvailable(pathInHistory, availability)).ToList()
         };
     }
 
@@ -177,5 +184,10 @@ public sealed class DockLayoutStore
         {
             return false;
         }
+    }
+
+    private static bool IsHistoryAvailable(string value, Func<string, bool> isPathAvailable)
+    {
+        return EverythingSearchLocation.TryParse(value, out _) || IsAvailable(value, isPathAvailable);
     }
 }

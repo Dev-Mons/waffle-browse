@@ -18,6 +18,7 @@ var tests = new (string Name, Action Run)[]
     ("Activating panel updates active panel without changing tabs", DockLayoutServiceTests.ActivatingPanelUpdatesActivePanelWithoutChangingTabs),
     ("Navigate to search turns active tab into search location", DockLayoutServiceTests.NavigateToSearchTurnsActiveTabIntoSearchLocation),
     ("Clearing search restores origin folder", DockLayoutServiceTests.ClearingSearchRestoresOriginFolder),
+    ("Search navigation supports back and forward", DockLayoutServiceTests.SearchNavigationSupportsBackAndForward),
     ("Closing the last tab removes its panel from layout", DockLayoutServiceTests.ClosingLastTabRemovesPanelFromLayout),
     ("Closing every panel creates empty layout", DockLayoutServiceTests.ClosingEveryPanelCreatesEmptyLayout),
     ("Navigation history supports back forward and parent", DockLayoutServiceTests.NavigationHistorySupportsBackForwardAndParent),
@@ -48,11 +49,9 @@ var tests = new (string Name, Action Run)[]
     ("Restore creates grid for legacy visible-panel state", DockLayoutStoreTests.RestoreCreatesGridWhenSavedStateHasOnlyVisiblePanels),
     ("Restore normalization rebuilds search tabs", DockLayoutStoreTests.RestoreNormalizationRebuildsSearchTabs),
     ("Restore normalization converts invalid search tabs to fallback folders", DockLayoutStoreTests.RestoreNormalizationConvertsInvalidSearchTabsToFallbackFolders),
-    ("Windows search location builder creates single root search URI", FileSearchServiceTests.WindowsSearchLocationBuilderCreatesSingleRootSearchUri),
-    ("Windows search location builder creates multi root search URI", FileSearchServiceTests.WindowsSearchLocationBuilderCreatesMultiRootSearchUri),
-    ("Windows search location builder rejects empty inputs", FileSearchServiceTests.WindowsSearchLocationBuilderRejectsEmptyInputs),
-    ("Search returns matching files and folders", FileSearchServiceTests.SearchReturnsMatchingFilesAndFolders),
-    ("Search skips unavailable paths and respects limit", FileSearchServiceTests.SearchSkipsUnavailablePathsAndRespectsLimit),
+    ("Everything global search location round-trips", EverythingSearchLocationTests.GlobalLocationRoundTrips),
+    ("Everything current-folder location round-trips", EverythingSearchLocationTests.CurrentFolderLocationRoundTrips),
+    ("Everything current-folder location requires a root", EverythingSearchLocationTests.CurrentFolderLocationRequiresRoot),
 };
 
 var failed = 0;

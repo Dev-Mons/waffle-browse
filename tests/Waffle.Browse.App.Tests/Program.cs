@@ -1,14 +1,16 @@
 using Waffle.Browse.App.Tests.Controls;
 using Waffle.Browse.App.Tests;
 using Waffle.Browse.App.Tests.Settings;
+using Waffle.Browse.App.Tests.Search;
 using Waffle.Browse.App.Tests.Shell;
 using Waffle.Browse.App.Tests.Theming;
 
 var tests = new (string Name, Action Run)[]
 {
-    ("Search resolver returns search-ms URI when Shell can parse it", ShellSearchTargetResolverTests.ResolveReturnsSearchUriWhenShellCanParseTarget),
-    ("Search resolver does not create saved search fallback", ShellSearchTargetResolverTests.ResolveDoesNotCreateSavedSearchFallback),
-    ("Search toolbar does not expose search scope selector", MainWindowSearchToolbarTests.SearchToolbarDoesNotExposeSearchScopeSelector),
+    ("Search toolbar exposes Everything scope selector", MainWindowSearchToolbarTests.SearchToolbarExposesEverythingScopeSelector),
+    ("Everything global query preserves syntax", EverythingQueryBuilderTests.GlobalSearchPreservesEverythingSyntax),
+    ("Everything current-folder query prefixes path", EverythingQueryBuilderTests.CurrentFolderSearchPrefixesRecursivePath),
+    ("Late search response cannot replace latest search", LatestSearchRequestCoordinatorTests.LateResponseCannotReplaceLatestSearch),
     ("Shell native theme applies dark theme to root and descendants", ShellNativeThemeApplierTests.ApplyDarkThemeThemesRootAndDescendants),
     ("Shell native theme restores Explorer theme for light mode", ShellNativeThemeApplierTests.ApplyLightThemeRestoresExplorerTheme),
     ("Shell native light theme forces shell windows to refresh theme", ShellNativeThemeApplierTests.ApplyLightThemeForcesShellWindowsToRefreshTheme),
@@ -58,7 +60,7 @@ var tests = new (string Name, Action Run)[]
     ("Explorer panel active state does not rewrite content", ExplorerPanelControlFocusTests.ActiveStateUpdateDoesNotRewritePanelContent),
     ("Explorer panel tabs do not accept keyboard focus", ExplorerPanelControlFocusTests.TabsListBoxDoesNotAcceptKeyboardFocus),
     ("UI settings store round-trips theme", UiSettingsStoreTests.UiSettingsStoreRoundTripsTheme),
-    ("UI settings store saves theme without search scope", UiSettingsStoreTests.UiSettingsStoreSavesThemeWithoutSearchScope),
+    ("UI settings store round-trips search scope", UiSettingsStoreTests.UiSettingsStoreRoundTripsSearchScope),
     ("Application data path uses current directory for new installs", ApplicationDataPathTests.ResolveUsesCurrentDirectoryForNewInstall),
     ("Application data path migrates legacy directory", ApplicationDataPathTests.ResolveMigratesLegacyDirectory),
     ("Application data path prefers existing current directory", ApplicationDataPathTests.ResolvePrefersExistingCurrentDirectory),

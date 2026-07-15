@@ -1,4 +1,5 @@
 using Waffle.Browse.Core.Navigation;
+using Waffle.Browse.Core.Search;
 
 namespace Waffle.Browse.Core.Docking;
 
@@ -79,6 +80,7 @@ public sealed class DockLayoutService
             LocationKind = TabLocationKind.Folder,
             SearchQuery = null,
             SearchOriginPath = null,
+            SearchScope = SearchScope.GlobalIndex,
             SearchRoots = [],
             BackStack = addHistory ? [.. tab.BackStack, tab.CurrentPath] : [.. tab.BackStack],
             ForwardStack = []
@@ -91,46 +93,34 @@ public sealed class DockLayoutService
     public DockLayoutState NavigateToSearch(
         DockLayoutState state,
         Guid panelId,
-        string queryText,
-        IReadOnlyList<string> searchRoots,
-        string searchTarget)
+        SearchQuery searchQuery)
     {
-        var query = queryText.Trim();
+        var query = searchQuery.Text.Trim();
         if (string.IsNullOrWhiteSpace(query))
         {
-            throw new ArgumentException("Search query is required.", nameof(queryText));
-        }
-
-        if (string.IsNullOrWhiteSpace(searchTarget))
-        {
-            throw new ArgumentException("Search target is required.", nameof(searchTarget));
-        }
-
-        var roots = searchRoots
-            .Where(root => !string.IsNullOrWhiteSpace(root))
-            .Select(root => root.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        if (roots.Count == 0)
-        {
-            throw new ArgumentException("At least one search root is required.", nameof(searchRoots));
+            throw new ArgumentException("Search query is required.", nameof(searchQuery));
         }
 
         var panel = state.FindPanel(panelId);
-        var tab = panel.ActiveTab ?? CreateTab(roots[0]);
+        var tab = panel.ActiveTab ?? CreateTab(searchQuery.RootPath ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
         var originPath = tab.LocationKind == TabLocationKind.Search && !string.IsNullOrWhiteSpace(tab.SearchOriginPath)
             ? tab.SearchOriginPath
             : tab.CurrentPath;
         if (string.IsNullOrWhiteSpace(originPath))
         {
-            originPath = roots[0];
+            originPath = searchQuery.RootPath ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         }
 
+        var rootPath = searchQuery.Scope == SearchScope.CurrentFolder
+            ? searchQuery.RootPath ?? originPath
+            : null;
+        var searchTarget = EverythingSearchLocation.Build(query, searchQuery.Scope, rootPath);
         var backStack = tab.BackStack.ToList();
-        if (ShouldPushHistory(backStack, originPath))
+        if (tab.LocationKind != TabLocationKind.Search && ShouldPushHistory(backStack, originPath))
         {
             backStack.Add(originPath);
         }
+
         var updatedTab = tab with
         {
             CurrentPath = searchTarget,
@@ -138,7 +128,8 @@ public sealed class DockLayoutService
             LocationKind = TabLocationKind.Search,
             SearchQuery = query,
             SearchOriginPath = originPath,
-            SearchRoots = roots,
+            SearchScope = searchQuery.Scope,
+            SearchRoots = rootPath is null ? [] : [rootPath],
             BackStack = backStack,
             ForwardStack = []
         };
@@ -167,6 +158,7 @@ public sealed class DockLayoutService
             LocationKind = TabLocationKind.Folder,
             SearchQuery = null,
             SearchOriginPath = null,
+            SearchScope = SearchScope.GlobalIndex,
             SearchRoots = [],
             BackStack = backStack,
             ForwardStack = []
@@ -193,6 +185,7 @@ public sealed class DockLayoutService
             LocationKind = TabLocationKind.Folder,
             SearchQuery = null,
             SearchOriginPath = null,
+            SearchScope = SearchScope.GlobalIndex,
             SearchRoots = [],
             BackStack = tab.BackStack.Take(tab.BackStack.Count - 1).ToList(),
             ForwardStack = [tab.CurrentPath, .. tab.ForwardStack]
@@ -211,6 +204,26 @@ public sealed class DockLayoutService
         }
 
         var nextPath = tab.ForwardStack[0];
+        if (EverythingSearchLocation.TryParse(nextPath, out var searchQuery))
+        {
+            var originPath = searchQuery.RootPath ?? tab.CurrentPath;
+            var updatedSearchTab = tab with
+            {
+                CurrentPath = nextPath,
+                Title = CreateSearchTitle(searchQuery.Text),
+                LocationKind = TabLocationKind.Search,
+                SearchQuery = searchQuery.Text,
+                SearchOriginPath = originPath,
+                SearchScope = searchQuery.Scope,
+                SearchRoots = searchQuery.RootPath is null ? [] : [searchQuery.RootPath],
+                BackStack = [.. tab.BackStack, tab.CurrentPath],
+                ForwardStack = tab.ForwardStack.Skip(1).ToList()
+            };
+
+            return ReplacePanel(state, ReplaceTab(panel, updatedSearchTab) with { ActiveTabId = updatedSearchTab.Id })
+                with { ActivePanelId = panelId };
+        }
+
         var updatedTab = tab with
         {
             CurrentPath = nextPath,
@@ -218,6 +231,7 @@ public sealed class DockLayoutService
             LocationKind = TabLocationKind.Folder,
             SearchQuery = null,
             SearchOriginPath = null,
+            SearchScope = SearchScope.GlobalIndex,
             SearchRoots = [],
             BackStack = [.. tab.BackStack, tab.CurrentPath],
             ForwardStack = tab.ForwardStack.Skip(1).ToList()

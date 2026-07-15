@@ -4,14 +4,14 @@ namespace Waffle.Browse.App.Tests;
 
 internal static class MainWindowSearchToolbarTests
 {
-    public static void SearchToolbarDoesNotExposeSearchScopeSelector()
+    public static void SearchToolbarExposesEverythingScopeSelector()
     {
         var xaml = File.ReadAllText(FindRepositoryFile(@"src\Waffle.Browse.App\MainWindow.xaml"));
 
-        if (xaml.Contains("SearchScopeBox", StringComparison.Ordinal)
-            || xaml.Contains("All open panels", StringComparison.Ordinal))
+        if (!xaml.Contains("SearchScopeBox", StringComparison.Ordinal)
+            || !xaml.Contains("현재 폴더", StringComparison.Ordinal))
         {
-            throw new InvalidOperationException("Search toolbar should not expose a search scope selector.");
+            throw new InvalidOperationException("Search toolbar should expose global and current-folder scopes.");
         }
     }
 

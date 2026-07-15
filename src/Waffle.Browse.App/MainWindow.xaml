@@ -47,6 +47,15 @@
                                  VerticalContentAlignment="Center"
                                  TextChanged="OnQuickSearchTextChanged"
                                  KeyDown="OnQuickSearchKeyDown" />
+                        <ComboBox x:Name="SearchScopeBox"
+                                  AutomationProperties.AutomationId="SearchScopeBox"
+                                  Width="92"
+                                  Margin="6,0,0,0"
+                                  VerticalContentAlignment="Center"
+                                  SelectionChanged="OnSearchScopeChanged">
+                            <ComboBoxItem Content="전체" />
+                            <ComboBoxItem Content="현재 폴더" />
+                        </ComboBox>
                         <Button Content="검색"
                                 AutomationProperties.AutomationId="QuickSearchButton"
                                 Margin="6,0,0,0"

@@ -121,6 +121,10 @@
                   Drop="OnPanelDrop">
                 <ContentControl x:Name="ShellHostContainer"
                                 AutomationProperties.AutomationId="ShellHostContainer" />
+                <ContentControl x:Name="SearchResultsContainer"
+                                AutomationProperties.AutomationId="SearchResultsContainer"
+                                PreviewMouseDown="OnSearchResultsPreviewMouseDown"
+                                Visibility="Collapsed" />
             </Grid>
         </Grid>
     </Border>

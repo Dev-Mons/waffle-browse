@@ -6,27 +6,40 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Media3D;
 using Waffle.Browse.App.Settings;
+using Waffle.Browse.App.Search;
 using Waffle.Browse.App.Shell;
 using Waffle.Browse.Core.Docking;
+using Waffle.Browse.Core.Search;
 
 namespace Waffle.Browse.App.Controls;
 
-public partial class ExplorerPanelControl : UserControl
+public partial class ExplorerPanelControl : UserControl, IDisposable
 {
     private Point? dragStartPoint;
     private Guid? dragCandidateTabId;
     private ShellExplorerHost shellHost;
+    private readonly EverythingSearchResultsView searchResultsView;
+    private readonly bool ownsSearchService;
+    private readonly IEverythingSearchService searchService;
     private string currentShellPath = string.Empty;
     private UiTheme currentTheme = UiTheme.Light;
     private bool isActivePanel;
+    private bool disposed;
 
-    public ExplorerPanelControl(PanelState panel, bool isActive)
+    public ExplorerPanelControl(PanelState panel, bool isActive, IEverythingSearchService? searchService = null)
     {
         Panel = panel;
+        var resolvedSearchService = searchService ?? new EverythingSearchService();
+        this.searchService = resolvedSearchService;
+        ownsSearchService = searchService is null;
         InitializeComponent();
 
         shellHost = CreateShellHost();
         ShellHostContainer.Content = shellHost;
+        searchResultsView = new EverythingSearchResultsView(resolvedSearchService);
+        searchResultsView.ResultActionRequested += OnSearchResultActionRequested;
+        searchResultsView.StatusChanged += OnSearchStatusChanged;
+        SearchResultsContainer.Content = searchResultsView;
         ApplyPanel(panel, isActive);
     }
 
@@ -56,11 +69,17 @@ public partial class ExplorerPanelControl : UserControl
 
     public event EventHandler? TabDragCompleted;
 
+    public event EventHandler<SearchResultActionRequestedEventArgs>? SearchResultActionRequested;
+
+    public event EventHandler<string>? SearchStatusChanged;
+
     public PanelState Panel { get; private set; }
 
     public void SetShellHostVisible(bool isVisible)
     {
-        ShellHostContainer.Visibility = isVisible ? Visibility.Visible : Visibility.Hidden;
+        var isSearch = Panel.ActiveTab?.LocationKind == TabLocationKind.Search;
+        ShellHostContainer.Visibility = isVisible && !isSearch ? Visibility.Visible : Visibility.Hidden;
+        SearchResultsContainer.Visibility = isVisible && isSearch ? Visibility.Visible : Visibility.Hidden;
     }
 
     public void ApplyTheme(UiTheme theme)
@@ -128,13 +147,16 @@ public partial class ExplorerPanelControl : UserControl
             ? activeTab.SearchOriginPath ?? string.Empty
             : path;
         if (activeTab is { LocationKind: TabLocationKind.Search }
-            && !string.IsNullOrWhiteSpace(activeTab.SearchQuery)
-            && activeTab.SearchRoots.Count > 0)
+            && !string.IsNullOrWhiteSpace(activeTab.SearchQuery))
         {
-            NavigateShellSearchIfChanged(activeTab);
+            ShellHostContainer.Visibility = Visibility.Hidden;
+            SearchResultsContainer.Visibility = Visibility.Visible;
+            searchResultsView.UpdateSearch(activeTab);
         }
         else
         {
+            SearchResultsContainer.Visibility = Visibility.Collapsed;
+            ShellHostContainer.Visibility = Visibility.Visible;
             NavigateShellIfChanged(path);
         }
     }
@@ -229,15 +251,39 @@ public partial class ExplorerPanelControl : UserControl
         shellHost.Navigate(path);
     }
 
-    private void NavigateShellSearchIfChanged(TabState tab)
+    private void OnSearchResultActionRequested(object? sender, SearchResultActionRequestedEventArgs e)
+        => SearchResultActionRequested?.Invoke(this, e);
+
+    private void OnSearchStatusChanged(object? sender, string e)
+        => SearchStatusChanged?.Invoke(this, e);
+
+    private void OnSearchResultsPreviewMouseDown(object sender, MouseButtonEventArgs e)
     {
-        if (PathEquals(currentShellPath, tab.CurrentPath))
+        RequestPanelFocus();
+    }
+
+    public void Dispose()
+    {
+        if (disposed)
         {
             return;
         }
 
-        currentShellPath = tab.CurrentPath;
-        shellHost.NavigateToSearch(tab.CurrentPath, tab.SearchQuery!, tab.SearchRoots);
+        disposed = true;
+        searchResultsView.ResultActionRequested -= OnSearchResultActionRequested;
+        searchResultsView.StatusChanged -= OnSearchStatusChanged;
+        searchResultsView.Dispose();
+        shellHost.NavigationCompleted -= OnShellNavigationCompleted;
+        shellHost.NavigationFailed -= OnShellNavigationFailed;
+        if (shellHost is IDisposable disposableShellHost)
+        {
+            disposableShellHost.Dispose();
+        }
+
+        if (ownsSearchService && searchService is IDisposable disposableSearchService)
+        {
+            disposableSearchService.Dispose();
+        }
     }
 
     private static bool PathEquals(string left, string right)
