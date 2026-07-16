@@ -7,8 +7,9 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
     private readonly FileSearchIndex index = new();
     private readonly IFileIndexSource source;
     private readonly IFileIndexStore store;
-    private readonly IReadOnlyList<string> roots;
+    private IReadOnlyList<string> roots;
     private readonly bool watchChanges;
+    private readonly bool buildOnInitialize;
     private readonly SemaphoreSlim initializeGate = new(1, 1);
     private readonly SemaphoreSlim rebuildGate = new(1, 1);
     private readonly SemaphoreSlim persistenceGate = new(1, 1);
@@ -20,10 +21,12 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
     private readonly List<FileIndexChange> pendingChanges = [];
     private readonly Dictionary<string, List<string>> warningsByRoot =
         new(StringComparer.OrdinalIgnoreCase);
+    private readonly IFileIndexProgressSource? progressSource;
     private readonly List<string> unscopedWarnings = [];
     private CancellationTokenSource? persistenceDelay;
     private Timer? networkRevalidationTimer;
     private FileIndexState state = FileIndexState.Empty;
+    private FileIndexProgressEventArgs progress = FileIndexProgressEventArgs.Initial;
     private bool initialized;
     private bool rebuildInProgress;
     private bool refreshWorkerRunning;
@@ -33,7 +36,8 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
         IFileIndexSource source,
         IFileIndexStore store,
         IReadOnlyList<string> roots,
-        bool watchChanges = true)
+        bool watchChanges = true,
+        bool buildOnInitialize = true)
     {
         this.source = source ?? throw new ArgumentNullException(nameof(source));
         this.store = store ?? throw new ArgumentNullException(nameof(store));
@@ -44,11 +48,30 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         this.watchChanges = watchChanges;
+        this.buildOnInitialize = buildOnInitialize;
+        progressSource = source as IFileIndexProgressSource;
+        if (progressSource is not null)
+        {
+            progressSource.ProgressChanged += OnSourceProgressChanged;
+        }
     }
 
     public string Id => ProviderId;
 
     public string DisplayName => "Waffle 자체 인덱스";
+
+    public event EventHandler? IndexStatusChanged;
+
+    public IReadOnlyList<string> IndexRoots
+    {
+        get
+        {
+            lock (stateGate)
+            {
+                return [.. roots];
+            }
+        }
+    }
 
     public FileIndexState State
     {
@@ -57,6 +80,17 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
             lock (stateGate)
             {
                 return state;
+            }
+        }
+    }
+
+    public FileIndexProgressEventArgs Progress
+    {
+        get
+        {
+            lock (stateGate)
+            {
+                return progress;
             }
         }
     }
@@ -70,6 +104,12 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
             ObjectDisposedException.ThrowIf(disposed, this);
             if (initialized)
             {
+                return;
+            }
+
+            if (!buildOnInitialize)
+            {
+                initialized = true;
                 return;
             }
 
@@ -107,6 +147,22 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
         await RebuildAsync(baseline, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task IndexFolderAsync(string folderPath, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(folderPath);
+        var root = Path.GetFullPath(folderPath);
+        if (!Directory.Exists(root))
+        {
+            throw new DirectoryNotFoundException($"색인할 폴더를 찾을 수 없습니다: {root}");
+        }
+
+        await InitializeAsync(cancellationToken).ConfigureAwait(false);
+        await RebuildAsync(
+            baseline: null,
+            cancellationToken,
+            replacementRoots: [root]).ConfigureAwait(false);
+    }
+
     public Task RebuildAsync(CancellationToken cancellationToken = default) =>
         RebuildAsync(baseline: null, cancellationToken);
 
@@ -118,7 +174,8 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
     private async Task RebuildAsync(
         FileIndexSnapshot? baseline,
         CancellationToken cancellationToken,
-        IReadOnlyList<string>? refreshRoots = null)
+        IReadOnlyList<string>? refreshRoots = null,
+        IReadOnlyList<string>? replacementRoots = null)
     {
         if (refreshRoots is { Count: 0 })
         {
@@ -129,6 +186,21 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
         try
         {
             ObjectDisposedException.ThrowIf(disposed, this);
+            if (replacementRoots is not null)
+            {
+                StopWatchers();
+                lock (stateGate)
+                {
+                    roots = replacementRoots
+                        .Select(Path.GetFullPath)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+                    pendingRefreshRoots.Clear();
+                    warningsByRoot.Clear();
+                    unscopedWarnings.Clear();
+                }
+            }
+
             IReadOnlyList<string> buildRoots = roots;
             FileIndexSnapshot? mergeBaseline = null;
             lock (stateGate)
@@ -153,7 +225,9 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
                     ItemCount = index.Count,
                     ErrorMessage = null
                 };
+                progress = new FileIndexProgressEventArgs(0, buildRoots.Count, null, 0, 0);
             }
+            NotifyIndexStatusChanged();
 
             try
             {
@@ -198,6 +272,7 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
                         warning);
                     rebuildInProgress = false;
                 }
+                NotifyIndexStatusChanged();
 
                 StartWatchers();
                 foreach (var root in refreshNativeRoots)
@@ -227,6 +302,7 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
                         ItemCount = index.Count
                     };
                 }
+                NotifyIndexStatusChanged();
 
                 if (appliedBufferedChanges)
                 {
@@ -256,6 +332,7 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
                         ErrorMessage = ex.Message
                     };
                 }
+                NotifyIndexStatusChanged();
 
                 if (appliedBufferedChanges)
                 {
@@ -453,6 +530,7 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
             index.Apply([change]);
             state = state with { ItemCount = index.Count };
         }
+        NotifyIndexStatusChanged();
 
         SchedulePersistence();
     }
@@ -625,7 +703,49 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
         {
             state = next;
         }
+        NotifyIndexStatusChanged();
     }
+
+    private void StopWatchers()
+    {
+        List<FileSystemWatcher> watchersToDispose;
+        lock (stateGate)
+        {
+            watchersToDispose = [.. watchers];
+            watchers.Clear();
+            watchedRoots.Clear();
+            networkRevalidationTimer?.Dispose();
+            networkRevalidationTimer = null;
+        }
+
+        foreach (var watcher in watchersToDispose)
+        {
+            watcher.EnableRaisingEvents = false;
+            watcher.Created -= OnCreatedOrChanged;
+            watcher.Changed -= OnCreatedOrChanged;
+            watcher.Deleted -= OnDeleted;
+            watcher.Renamed -= OnRenamed;
+            watcher.Error -= OnWatcherError;
+            watcher.Dispose();
+        }
+    }
+
+    private void OnSourceProgressChanged(object? sender, FileIndexProgressEventArgs e)
+    {
+        lock (stateGate)
+        {
+            if (disposed)
+            {
+                return;
+            }
+
+            progress = e;
+        }
+        NotifyIndexStatusChanged();
+    }
+
+    private void NotifyIndexStatusChanged() =>
+        IndexStatusChanged?.Invoke(this, EventArgs.Empty);
 
     private static FileIndexBuildResult MergeRefreshedRoots(
         FileIndexSnapshot baseline,
@@ -833,6 +953,11 @@ public sealed class WaffleFileSearchProvider : ISearchProvider, IDisposable
             watcher.Renamed -= OnRenamed;
             watcher.Error -= OnWatcherError;
             watcher.Dispose();
+        }
+
+        if (progressSource is not null)
+        {
+            progressSource.ProgressChanged -= OnSourceProgressChanged;
         }
     }
 }

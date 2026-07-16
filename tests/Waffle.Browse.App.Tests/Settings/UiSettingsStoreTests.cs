@@ -1,6 +1,5 @@
 using System.IO;
 using Waffle.Browse.App.Settings;
-using Waffle.Browse.Core.Search;
 
 namespace Waffle.Browse.App.Tests.Settings;
 
@@ -20,7 +19,7 @@ internal static class UiSettingsStoreTests
         }
     }
 
-    public static void UiSettingsStoreRoundTripsSearchScope()
+    public static void UiSettingsStoreRoundTripsIndexRoots()
     {
         var tempFile = Path.Combine(Path.GetTempPath(), "waffle-browse-tests", Guid.NewGuid().ToString("N"), "settings.json");
         var store = new UiSettingsStore(tempFile);
@@ -28,16 +27,16 @@ internal static class UiSettingsStoreTests
         store.Save(new UiSettings
         {
             Theme = UiTheme.Dark,
-            LastSelectedSearchScope = SearchScope.CurrentFolder,
+            IndexedLocalRoots = [@"D:\Projects"],
             IndexedNetworkRoots = [@"\\server\share"]
         });
         var loaded = store.Load();
 
-        if (loaded.LastSelectedSearchScope != SearchScope.CurrentFolder)
+        if (loaded.IndexedLocalRoots.Count != 1
+            || loaded.IndexedLocalRoots[0] != @"D:\Projects")
         {
-            throw new InvalidOperationException("Search scope should be persisted.");
+            throw new InvalidOperationException("Explicitly configured local index roots should be persisted.");
         }
-
 
         if (loaded.IndexedNetworkRoots.Count != 1
             || loaded.IndexedNetworkRoots[0] != @"\\server\share")

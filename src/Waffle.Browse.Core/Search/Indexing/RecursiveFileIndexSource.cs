@@ -1,7 +1,14 @@
+using System.IO.Enumeration;
+
 namespace Waffle.Browse.Core.Search.Indexing;
 
-public sealed class RecursiveFileIndexSource : IFileIndexSource
+public sealed class RecursiveFileIndexSource : IFileIndexSource, IFileIndexProgressSource
 {
+    private const int ProgressReportInterval = 250;
+    private const int ProgressReportIntervalMilliseconds = 100;
+
+    public event EventHandler<FileIndexProgressEventArgs>? ProgressChanged;
+
     public Task<FileIndexBuildResult> BuildAsync(
         IReadOnlyList<string> roots,
         CancellationToken cancellationToken = default)
@@ -45,12 +52,16 @@ public sealed class RecursiveFileIndexSource : IFileIndexSource
         }
     }
 
-    private static FileIndexBuildResult Build(IReadOnlyList<string> roots, CancellationToken cancellationToken)
+    private FileIndexBuildResult Build(IReadOnlyList<string> roots, CancellationToken cancellationToken)
     {
-        var entries = new List<FileIndexEntry>();
+        var entries = new List<FileIndexEntry>(4096);
         var checkpoints = new List<FileIndexCheckpoint>();
         var warnings = new List<string>();
+        var configuredRoots = roots.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         long skippedPathCount = 0;
+        var completedRootCount = 0;
+        var lastReportedItemCount = 0;
+        var lastProgressReportAt = Environment.TickCount64;
 
         void AddWarning(string warning)
         {
@@ -61,7 +72,8 @@ public sealed class RecursiveFileIndexSource : IFileIndexSource
             }
         }
 
-        foreach (var configuredRoot in roots.Distinct(StringComparer.OrdinalIgnoreCase))
+        ReportProgress(null);
+        foreach (var configuredRoot in configuredRoots)
         {
             cancellationToken.ThrowIfCancellationRequested();
             string root;
@@ -72,47 +84,67 @@ public sealed class RecursiveFileIndexSource : IFileIndexSource
             catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
             {
                 AddWarning($"{configuredRoot}: {ex.Message}");
+                completedRootCount++;
+                ReportProgress(null);
                 continue;
             }
 
+            ReportProgress(root);
             if (!Directory.Exists(root))
             {
                 AddWarning($"{root}: 볼륨 또는 폴더를 사용할 수 없습니다.");
+                completedRootCount++;
+                ReportProgress(null);
                 continue;
             }
 
-            var stack = new Stack<string>();
-            stack.Push(root);
-            while (stack.Count > 0)
+            try
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                var directory = stack.Pop();
-                IEnumerable<string> children;
-                try
-                {
-                    children = Directory.EnumerateFileSystemEntries(directory).ToList();
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
-                {
-                    AddWarning($"{directory}: {ex.Message}");
-                    continue;
-                }
+                var enumeration = new FileSystemEnumerable<FileIndexEntry>(
+                    root,
+                    static (ref FileSystemEntry entry) =>
+                    {
+                        var fullPath = entry.ToFullPath();
+                        var isDirectory = entry.IsDirectory;
+                        return new FileIndexEntry(
+                            fullPath,
+                            entry.FileName.ToString(),
+                            Path.GetDirectoryName(fullPath) ?? string.Empty,
+                            isDirectory ? SearchItemKind.Folder : SearchItemKind.File,
+                            isDirectory ? null : entry.Length,
+                            entry.LastWriteTimeUtc);
+                    },
+                    new EnumerationOptions
+                    {
+                        RecurseSubdirectories = true,
+                        IgnoreInaccessible = true,
+                        ReturnSpecialDirectories = false,
+                        AttributesToSkip = 0
+                    });
+                enumeration.ShouldRecursePredicate = static (ref FileSystemEntry entry) =>
+                    !entry.Attributes.HasFlag(FileAttributes.ReparsePoint);
 
-                foreach (var child in children)
+                foreach (var entry in enumeration)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    var entry = TryReadEntry(child);
-                    if (entry is null)
-                    {
-                        continue;
-                    }
-
                     entries.Add(entry);
-                    if (entry.Kind == SearchItemKind.Folder && !IsReparsePoint(entry.FullPath))
+                    if (entries.Count - lastReportedItemCount >= ProgressReportInterval
+                        && Environment.TickCount64 - lastProgressReportAt >= ProgressReportIntervalMilliseconds)
                     {
-                        stack.Push(entry.FullPath);
+                        lastReportedItemCount = entries.Count;
+                        lastProgressReportAt = Environment.TickCount64;
+                        ReportProgress(root);
                     }
                 }
+            }
+            catch (Exception ex) when (ex is IOException
+                                       or UnauthorizedAccessException
+                                       or DirectoryNotFoundException)
+            {
+                AddWarning($"{root}: {ex.Message}");
+                completedRootCount++;
+                ReportProgress(null);
+                continue;
             }
 
             var (volumeId, fileSystem) = TryGetVolumeIdentity(root);
@@ -123,20 +155,22 @@ public sealed class RecursiveFileIndexSource : IFileIndexSource
                 JournalId: null,
                 NextUsn: null,
                 DateTimeOffset.UtcNow));
+            completedRootCount++;
+            ReportProgress(null);
         }
 
         return new FileIndexBuildResult(entries, checkpoints, warnings, skippedPathCount);
-    }
 
-    private static bool IsReparsePoint(string path)
-    {
-        try
+        void ReportProgress(string? currentRoot)
         {
-            return File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return true;
+            ProgressChanged?.Invoke(
+                this,
+                new FileIndexProgressEventArgs(
+                    completedRootCount,
+                    configuredRoots.Count,
+                    currentRoot,
+                    entries.Count,
+                    skippedPathCount));
         }
     }
 

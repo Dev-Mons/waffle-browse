@@ -5,16 +5,16 @@ namespace Waffle.Browse.Core.Tests.Search;
 
 internal static class JsonFileIndexStoreTests
 {
-    public static void RoundTripsVersionTwoNativeIdentifiersAndNullMetadata()
+    public static void RoundTripsCurrentIdentifiersAndNullMetadata()
     {
         WithTemporaryStore((store, _) =>
         {
             const string volumeId = @"\\?\Volume{01234567-89ab-cdef-0123-456789abcdef}\";
             const uint volumeSerialNumber = 0xFEDCBA98;
             const ulong journalId = 0xFFEEDDCCBBAA9988;
-            var fileReference = new FileIndexFileReference(
-                Low: 0xFEDCBA9876543210,
-                High: 0x0123456789ABCDEF);
+            var fileReference = new FileReferenceId(
+                low: 0xFEDCBA9876543210,
+                high: 0x0123456789ABCDEF);
             var capturedAt = new DateTimeOffset(2026, 7, 15, 14, 25, 30, TimeSpan.FromHours(9)).AddTicks(1234);
             var completedAt = capturedAt.AddMinutes(-5);
             var checkpoint = new FileIndexCheckpoint(
@@ -42,12 +42,12 @@ internal static class JsonFileIndexStoreTests
             store.SaveAsync(snapshot).GetAwaiter().GetResult();
             var load = store.LoadAsync().GetAwaiter().GetResult();
 
-            TestAssert.Equal(2, FileIndexSnapshot.CurrentFormatVersion, "Native identifier snapshot format should be version 2");
-            TestAssert.Equal(FileIndexLoadKind.Loaded, load.Kind, "Version 2 snapshot should load successfully");
+            TestAssert.Equal(4, FileIndexSnapshot.CurrentFormatVersion, "Safe index snapshot format should be version 4");
+            TestAssert.Equal(FileIndexLoadKind.Loaded, load.Kind, "Version 4 snapshot should load successfully");
             TestAssert.NotNull(load.Snapshot, "Loaded result should include the snapshot");
 
             var loaded = load.Snapshot!;
-            TestAssert.Equal(2, loaded.FormatVersion, "Snapshot format version should round-trip");
+            TestAssert.Equal(4, loaded.FormatVersion, "Snapshot format version should round-trip");
             TestAssert.Equal(FileIndexBuildState.Ready, loaded.State.BuildState, "Build state should round-trip");
             TestAssert.Equal(17L, loaded.State.Generation, "Generation should round-trip");
             TestAssert.Equal(1L, loaded.State.ItemCount, "Item count should round-trip");
@@ -97,15 +97,15 @@ internal static class JsonFileIndexStoreTests
         });
     }
 
-    public static void RejectsSemanticallyInvalidVersionTwoSnapshots()
+    public static void RejectsSemanticallyInvalidCurrentSnapshots()
     {
         WithTemporaryStore((store, filePath) =>
         {
             var invalidDocuments = new[]
             {
-                """{"FormatVersion":2,"State":null,"Entries":[]}""",
-                """{"FormatVersion":2,"State":{"BuildState":2,"Generation":1,"ItemCount":1,"LastCompletedAt":null,"Checkpoints":[]},"Entries":[null]}""",
-                """{"FormatVersion":2,"State":{"BuildState":2,"Generation":1,"ItemCount":2,"LastCompletedAt":null,"Checkpoints":[]},"Entries":[]}"""
+                """{"FormatVersion":4,"State":null,"Entries":[]}""",
+                """{"FormatVersion":4,"State":{"BuildState":2,"Generation":1,"ItemCount":1,"LastCompletedAt":null,"Checkpoints":[]},"Entries":[null]}""",
+                """{"FormatVersion":4,"State":{"BuildState":2,"Generation":1,"ItemCount":2,"LastCompletedAt":null,"Checkpoints":[]},"Entries":[]}"""
             };
 
             foreach (var document in invalidDocuments)
@@ -113,8 +113,8 @@ internal static class JsonFileIndexStoreTests
                 Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
                 File.WriteAllText(filePath, document);
                 var load = store.LoadAsync().GetAwaiter().GetResult();
-                TestAssert.Equal(FileIndexLoadKind.Corrupt, load.Kind, "A structurally valid but semantically invalid v2 snapshot should be rejected");
-                TestAssert.Equal<FileIndexSnapshot?>(null, load.Snapshot, "An invalid v2 snapshot should not be returned");
+                TestAssert.Equal(FileIndexLoadKind.Corrupt, load.Kind, "A structurally valid but semantically invalid snapshot should be rejected");
+                TestAssert.Equal<FileIndexSnapshot?>(null, load.Snapshot, "An invalid snapshot should not be returned");
             }
         });
     }

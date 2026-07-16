@@ -86,6 +86,11 @@ public sealed class FileSearchIndex
             throw new ArgumentOutOfRangeException(nameof(query), "MaxResults must be between 1 and 1000.");
         }
 
+        if (query.Scope != SearchScope.CurrentFolder || string.IsNullOrWhiteSpace(query.RootPath))
+        {
+            throw new ArgumentException("Search requires the active folder as its root.", nameof(query));
+        }
+
         var terms = query.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (terms.Length == 0)
         {
@@ -190,17 +195,7 @@ public sealed class FileSearchIndex
 
     private static bool IsInScope(string fullPath, SearchQuery query)
     {
-        if (query.Scope != SearchScope.CurrentFolder)
-        {
-            return true;
-        }
-
-        if (string.IsNullOrWhiteSpace(query.RootPath))
-        {
-            return false;
-        }
-
-        var root = NormalizePath(query.RootPath);
+        var root = NormalizePath(query.RootPath!);
         return fullPath.StartsWith(DescendantPrefix(root), StringComparison.OrdinalIgnoreCase);
     }
 

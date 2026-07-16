@@ -34,14 +34,14 @@ internal static class FileSearchIndexTests
         ]);
 
         index.Apply([FileIndexChange.Rename(@"C:\Work\Old", @"C:\Work\New")]);
-        var renamed = index.Search(new SearchQuery("child", SearchScope.GlobalIndex, 1000), Ready, "test");
+        var renamed = index.Search(new SearchQuery("child", SearchScope.CurrentFolder, 1000, @"C:\"), Ready, "test");
         TestAssert.Equal(@"C:\Work\New\child.txt", renamed.Results.Single().FullPath, "Directory rename should move descendant paths");
 
         index.Apply([FileIndexChange.Upsert(Entry(@"C:\Work\created.txt", SearchItemKind.File, 7))]);
-        TestAssert.Equal(1L, index.Search(new SearchQuery("created", SearchScope.GlobalIndex, 1000), Ready, "test").TotalResults, "Create should be searchable");
+        TestAssert.Equal(1L, index.Search(new SearchQuery("created", SearchScope.CurrentFolder, 1000, @"C:\"), Ready, "test").TotalResults, "Create should be searchable");
 
         index.Apply([FileIndexChange.Delete(@"C:\Work\New")]);
-        TestAssert.Equal(0L, index.Search(new SearchQuery("child", SearchScope.GlobalIndex, 1000), Ready, "test").TotalResults, "Deleting a directory should remove descendants");
+        TestAssert.Equal(0L, index.Search(new SearchQuery("child", SearchScope.CurrentFolder, 1000, @"C:\"), Ready, "test").TotalResults, "Deleting a directory should remove descendants");
     }
 
     public static void SortsFoldersFirstAndCapsResults()
@@ -53,7 +53,7 @@ internal static class FileSearchIndexTests
             Entry(@"C:\Beta-item.txt", SearchItemKind.File)
         ]);
 
-        var response = index.Search(new SearchQuery("item", SearchScope.GlobalIndex, 2), Ready, "test");
+        var response = index.Search(new SearchQuery("item", SearchScope.CurrentFolder, 2, @"C:\"), Ready, "test");
         TestAssert.Equal(3L, response.TotalResults, "Total should be measured before the result cap");
         TestAssert.Equal(SearchItemKind.Folder, response.Results[0].Kind, "Folders should sort before files");
         TestAssert.Equal(2, response.Results.Count, "Results should respect MaxResults");
@@ -88,7 +88,11 @@ internal static class FileSearchIndexTests
             yield return FileIndexChange.Upsert(Entry(@"C:\Work\New\created.txt", SearchItemKind.File));
         }
 
-        var publish = Task.Run(() => index.ReplaceAndApply(Replacement(), Changes()));
+        var publish = Task.Run(() =>
+        {
+            var replacement = FileSearchIndex.PrepareReplacement(Replacement());
+            index.ReplacePrepared(replacement, Changes());
+        });
         var replacementWasPreparedWithoutLock = false;
         var changesWereAppliedWithoutLock = false;
         var replacementEnumerationBegan = false;
@@ -128,7 +132,7 @@ internal static class FileSearchIndexTests
     public static void MetadataUpdatesPreserveNativeIdentityButCreatesReplaceIt()
     {
         const string path = @"C:\Work\native.txt";
-        var reference = new FileIndexFileReference(10, 20);
+        var reference = new FileReferenceId(10, 20);
         var index = new FileSearchIndex();
         index.Replace([
             new FileIndexEntry(
@@ -154,12 +158,12 @@ internal static class FileSearchIndexTests
         var updated = index.Snapshot().Single();
         TestAssert.Equal(2L, updated.Size, "Changed metadata should replace the previous size");
         TestAssert.Equal("volume-id", updated.VolumeId, "Changed metadata should preserve the native volume identity");
-        TestAssert.Equal<FileIndexFileReference?>(reference, updated.FileReferenceNumber, "Changed metadata should preserve the native file reference");
+        TestAssert.Equal<FileReferenceId?>(reference, updated.FileReferenceNumber, "Changed metadata should preserve the native file reference");
 
         index.Apply([FileIndexChange.Upsert(metadata)]);
         var recreated = index.Snapshot().Single();
         TestAssert.Equal<string?>(null, recreated.VolumeId, "A create upsert must not reuse identity from a replaced file");
-        TestAssert.Equal<FileIndexFileReference?>(null, recreated.FileReferenceNumber, "A create upsert must not reuse the old file reference");
+        TestAssert.Equal<FileReferenceId?>(null, recreated.FileReferenceNumber, "A create upsert must not reuse the old file reference");
     }
 
     private static bool CanReadOnlyPreviousGeneration(FileSearchIndex index)
@@ -172,7 +176,7 @@ internal static class FileSearchIndexTests
     }
 
     private static SearchResponse Search(FileSearchIndex index, string text) =>
-        index.Search(new SearchQuery(text, SearchScope.GlobalIndex, 1000), Ready, "test");
+        index.Search(new SearchQuery(text, SearchScope.CurrentFolder, 1000, @"C:\"), Ready, "test");
 
     private static FileIndexEntry Entry(string path, SearchItemKind kind, long? size = null) =>
         new(

@@ -12,7 +12,12 @@ public static class WaffleSearchLocation
             throw new ArgumentException("Search query is required.", nameof(query));
         }
 
-        if (scope == SearchScope.CurrentFolder && string.IsNullOrWhiteSpace(rootPath))
+        if (scope != SearchScope.CurrentFolder)
+        {
+            throw new NotSupportedException("Only current-folder search is supported.");
+        }
+
+        if (string.IsNullOrWhiteSpace(rootPath))
         {
             throw new ArgumentException("A root path is required for a current-folder search.", nameof(rootPath));
         }
@@ -25,7 +30,7 @@ public static class WaffleSearchLocation
 
     public static bool TryParse(string value, out SearchQuery query)
     {
-        query = new SearchQuery(string.Empty, SearchScope.GlobalIndex, 1000);
+        query = new SearchQuery(string.Empty, SearchScope.CurrentFolder, 1000);
         if (string.IsNullOrWhiteSpace(value) || !value.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase))
         {
             return false;
@@ -45,12 +50,15 @@ public static class WaffleSearchLocation
             return false;
         }
 
-        var scope = values.TryGetValue("scope", out var scopeText)
-            && Enum.TryParse<SearchScope>(scopeText, true, out var parsedScope)
-                ? parsedScope
-                : SearchScope.GlobalIndex;
+        if (!values.TryGetValue("scope", out var scopeText)
+            || !Enum.TryParse<SearchScope>(scopeText, true, out var scope)
+            || scope != SearchScope.CurrentFolder)
+        {
+            return false;
+        }
+
         values.TryGetValue("root", out var rootPath);
-        if (scope == SearchScope.CurrentFolder && string.IsNullOrWhiteSpace(rootPath))
+        if (string.IsNullOrWhiteSpace(rootPath))
         {
             return false;
         }

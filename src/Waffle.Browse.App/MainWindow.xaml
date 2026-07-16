@@ -42,20 +42,12 @@
                                 VerticalAlignment="Center">
                         <TextBox x:Name="QuickSearchBox"
                                  AutomationProperties.AutomationId="QuickSearchBox"
-                                 Width="260"
+                                 Width="330"
                                  MinHeight="24"
                                  VerticalContentAlignment="Center"
+                                 GotKeyboardFocus="OnQuickSearchGotKeyboardFocus"
                                  TextChanged="OnQuickSearchTextChanged"
                                  KeyDown="OnQuickSearchKeyDown" />
-                        <ComboBox x:Name="SearchScopeBox"
-                                  AutomationProperties.AutomationId="SearchScopeBox"
-                                  Width="92"
-                                  Margin="6,0,0,0"
-                                  VerticalContentAlignment="Center"
-                                  SelectionChanged="OnSearchScopeChanged">
-                            <ComboBoxItem Content="전체" />
-                            <ComboBoxItem Content="현재 폴더" />
-                        </ComboBox>
                         <Button Content="검색"
                                 AutomationProperties.AutomationId="QuickSearchButton"
                                 Margin="6,0,0,0"
@@ -100,6 +92,66 @@
                             ToolTip="Four panel grid"
                             Click="OnFourPanelClick" />
                 </StackPanel>
+            </Grid>
+        </Border>
+
+        <Border x:Name="IndexStatusBar"
+                AutomationProperties.AutomationId="IndexStatusBar"
+                DockPanel.Dock="Bottom"
+                Visibility="Collapsed"
+                Background="{DynamicResource ToolbarBackgroundBrush}"
+                BorderBrush="{DynamicResource PanelBorderBrush}"
+                BorderThickness="0,1,0,0"
+                Padding="10,5">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock x:Name="IndexStatusText"
+                           AutomationProperties.AutomationId="IndexStatusText"
+                           MinWidth="76"
+                           VerticalAlignment="Center"
+                           FontWeight="SemiBold"
+                           Text="색인 대기" />
+                <ProgressBar x:Name="IndexProgressBar"
+                             AutomationProperties.AutomationId="IndexProgressBar"
+                             Grid.Column="1"
+                             Width="140"
+                             Height="6"
+                             Margin="10,0"
+                             VerticalAlignment="Center"
+                             IsIndeterminate="False" />
+                <TextBlock x:Name="IndexCountText"
+                           AutomationProperties.AutomationId="IndexCountText"
+                           Grid.Column="2"
+                           MinWidth="110"
+                           VerticalAlignment="Center"
+                           Foreground="{DynamicResource SubtleTextBrush}"
+                           Text="0개 항목" />
+                <TextBlock x:Name="IndexProgressText"
+                           AutomationProperties.AutomationId="IndexProgressText"
+                           Grid.Column="3"
+                           HorizontalAlignment="Right"
+                           VerticalAlignment="Center"
+                           Foreground="{DynamicResource SubtleTextBrush}" />
+
+                <TextBlock x:Name="IndexDetailText"
+                           AutomationProperties.AutomationId="IndexDetailText"
+                           Grid.Row="1"
+                           Grid.ColumnSpan="4"
+                           Margin="0,3,0,0"
+                           Foreground="{DynamicResource SubtleTextBrush}"
+                           FontSize="11"
+                           TextTrimming="CharacterEllipsis"
+                           Text="검색창을 선택하면 현재 탭 폴더를 색인합니다." />
             </Grid>
         </Border>
 

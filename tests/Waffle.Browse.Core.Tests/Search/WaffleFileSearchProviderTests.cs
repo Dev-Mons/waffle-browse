@@ -267,7 +267,7 @@ internal static class WaffleFileSearchProviderTests
             TestAssert.Equal(1, source.LastRefreshRoots!.Count, "One watcher root should produce one targeted source refresh");
             TestAssert.Equal(firstRoot, source.LastRefreshRoots[0], "The unaffected root should not be recursively refreshed");
             TestAssert.Equal(1L, Search(provider, "exclusive-new-item").TotalResults, "The changed native root should publish its refreshed entries");
-            TestAssert.Equal(1L, Search(provider, "second").TotalResults, "Targeted refresh must retain other root generations");
+            TestAssert.Equal(1L, Search(provider, "second", secondRoot).TotalResults, "Targeted refresh must retain other root generations");
             TestAssert.True(
                 provider.State.ErrorMessage?.Contains("second root degraded", StringComparison.Ordinal) == true,
                 "Targeted refresh should retain warnings for unaffected roots");
@@ -344,8 +344,60 @@ internal static class WaffleFileSearchProviderTests
         }
     }
 
-    private static SearchResponse Search(WaffleFileSearchProvider provider, string text) =>
-        provider.SearchAsync(new SearchQuery(text, SearchScope.GlobalIndex, 1000)).GetAwaiter().GetResult();
+    public static void LazyProviderIndexesOnlySelectedFolder()
+    {
+        var testRoot = Path.Combine(Path.GetTempPath(), $"waffle-lazy-index-{Guid.NewGuid():N}");
+        var firstRoot = Path.Combine(testRoot, "first");
+        var secondRoot = Path.Combine(testRoot, "second");
+        Directory.CreateDirectory(firstRoot);
+        Directory.CreateDirectory(secondRoot);
+        try
+        {
+            var firstEntry = Entry(Path.Combine(firstRoot, "first-only.txt"));
+            var secondEntry = Entry(Path.Combine(secondRoot, "second-only.txt"));
+            var source = new RecordingSnapshotSource(
+                (_, _) => throw new InvalidOperationException("Lazy folder indexing should build a replacement generation."),
+                roots => new FileIndexBuildResult(
+                    string.Equals(roots.Single(), firstRoot, StringComparison.OrdinalIgnoreCase)
+                        ? [firstEntry]
+                        : [secondEntry],
+                    [],
+                    []));
+            using var provider = new WaffleFileSearchProvider(
+                source,
+                new MemoryIndexStore(null),
+                [],
+                watchChanges: false,
+                buildOnInitialize: false);
+
+            provider.InitializeAsync().GetAwaiter().GetResult();
+            TestAssert.Equal(0, source.BuildCallCount, "Lazy initialization must not scan a folder.");
+            TestAssert.Equal(FileIndexBuildState.Empty, provider.State.BuildState, "Lazy initialization should remain idle.");
+
+            provider.IndexFolderAsync(firstRoot).GetAwaiter().GetResult();
+            TestAssert.Equal(firstRoot, provider.IndexRoots.Single(), "The first selected folder should be the only index root.");
+            TestAssert.Equal(1L, Search(provider, "first-only", firstRoot).TotalResults, "The selected folder should be searchable.");
+
+            provider.IndexFolderAsync(secondRoot).GetAwaiter().GetResult();
+            TestAssert.Equal(secondRoot, provider.IndexRoots.Single(), "Changing tabs should replace the index root.");
+            TestAssert.Equal(0L, Search(provider, "first-only", firstRoot).TotalResults, "The previous folder generation must be removed.");
+            TestAssert.Equal(1L, Search(provider, "second-only", secondRoot).TotalResults, "The newly selected folder should be searchable.");
+        }
+        finally
+        {
+            Directory.Delete(testRoot, recursive: true);
+        }
+    }
+
+    private static SearchResponse Search(
+        WaffleFileSearchProvider provider,
+        string text,
+        string? rootPath = null) =>
+        provider.SearchAsync(new SearchQuery(
+            text,
+            SearchScope.CurrentFolder,
+            1000,
+            rootPath ?? provider.IndexRoots[0])).GetAwaiter().GetResult();
 
     private static FileIndexEntry Entry(string path) =>
         new(

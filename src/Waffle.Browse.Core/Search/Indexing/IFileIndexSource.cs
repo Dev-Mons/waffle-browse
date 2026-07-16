@@ -13,6 +13,31 @@ public interface IFileIndexSource
         CancellationToken cancellationToken = default);
 }
 
+public sealed class FileIndexProgressEventArgs(
+    int completedRootCount,
+    int totalRootCount,
+    string? currentRoot,
+    long discoveredItemCount,
+    long skippedPathCount) : EventArgs
+{
+    public int CompletedRootCount { get; } = completedRootCount;
+
+    public int TotalRootCount { get; } = totalRootCount;
+
+    public string? CurrentRoot { get; } = currentRoot;
+
+    public long DiscoveredItemCount { get; } = discoveredItemCount;
+
+    public long SkippedPathCount { get; } = skippedPathCount;
+
+    public static FileIndexProgressEventArgs Initial { get; } = new(0, 0, null, 0, 0);
+}
+
+public interface IFileIndexProgressSource
+{
+    event EventHandler<FileIndexProgressEventArgs>? ProgressChanged;
+}
+
 public interface IFileIndexSnapshotSource : IFileIndexSource
 {
     Task<FileIndexBuildResult> RefreshAsync(

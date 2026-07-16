@@ -89,7 +89,7 @@ public sealed class DockLayoutStore
             LocationKind = TabLocationKind.Folder,
             SearchQuery = null,
             SearchOriginPath = null,
-            SearchScope = SearchScope.GlobalIndex,
+            SearchScope = SearchScope.CurrentFolder,
             SearchRoots = [],
             BackStack = tab.BackStack.Where(pathInHistory => IsHistoryAvailable(pathInHistory, availability)).ToList(),
             ForwardStack = tab.ForwardStack.Where(pathInHistory => IsHistoryAvailable(pathInHistory, availability)).ToList()
@@ -112,10 +112,8 @@ public sealed class DockLayoutStore
             return NormalizeFolderTab(tab, fallbackPath, availability);
         }
 
-        var scope = tab.CurrentPath.StartsWith("search-ms:", StringComparison.OrdinalIgnoreCase)
-            ? SearchScope.CurrentFolder
-            : tab.SearchScope;
-        var rootPath = scope == SearchScope.CurrentFolder ? roots.FirstOrDefault() ?? originPath : null;
+        var scope = SearchScope.CurrentFolder;
+        var rootPath = roots.FirstOrDefault() ?? originPath;
 
         return tab with
         {
@@ -125,7 +123,7 @@ public sealed class DockLayoutStore
             SearchQuery = query,
             SearchOriginPath = originPath,
             SearchScope = scope,
-            SearchRoots = rootPath is null ? [] : [rootPath],
+            SearchRoots = [rootPath],
             BackStack = tab.BackStack.Where(pathInHistory => IsHistoryAvailable(pathInHistory, availability)).ToList(),
             ForwardStack = tab.ForwardStack.Where(pathInHistory => IsHistoryAvailable(pathInHistory, availability)).ToList()
         };

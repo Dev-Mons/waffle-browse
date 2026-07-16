@@ -16,7 +16,7 @@ public sealed record TabState
 
     public string? SearchOriginPath { get; init; }
 
-    public SearchScope SearchScope { get; init; } = SearchScope.GlobalIndex;
+    public SearchScope SearchScope { get; init; } = SearchScope.CurrentFolder;
 
     public List<string> SearchRoots { get; init; } = [];
 

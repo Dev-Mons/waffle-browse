@@ -46,10 +46,19 @@ public partial class SearchResultsView : UserControl, IDisposable
             return;
         }
 
-        var rootPath = tab.SearchScope == SearchScope.CurrentFolder
-            ? tab.SearchRoots.FirstOrDefault() ?? tab.SearchOriginPath
-            : null;
-        var nextQuery = new SearchQuery(tab.SearchQuery, tab.SearchScope, 1000, rootPath, currentQuery?.Sort ?? SearchSort.NameAscending);
+        var rootPath = tab.SearchRoots.FirstOrDefault() ?? tab.SearchOriginPath;
+        if (string.IsNullOrWhiteSpace(rootPath))
+        {
+            StopRefreshing();
+            return;
+        }
+
+        var nextQuery = new SearchQuery(
+            tab.SearchQuery,
+            SearchScope.CurrentFolder,
+            1000,
+            rootPath,
+            currentQuery?.Sort ?? SearchSort.NameAscending);
         var queryChanged = currentQuery is null
             || currentQuery.Text != nextQuery.Text
             || currentQuery.Scope != nextQuery.Scope

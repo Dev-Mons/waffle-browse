@@ -9,8 +9,8 @@ internal static class LatestSearchRequestCoordinatorTests
     {
         var service = new DeferredFakeSearchService();
         using var coordinator = new LatestSearchRequestCoordinator(service);
-        var first = coordinator.SearchAsync(new SearchQuery("first", SearchScope.GlobalIndex, 1000));
-        var second = coordinator.SearchAsync(new SearchQuery("second", SearchScope.GlobalIndex, 1000));
+        var first = coordinator.SearchAsync(new SearchQuery("first", SearchScope.CurrentFolder, 1000, @"C:\Work"));
+        var second = coordinator.SearchAsync(new SearchQuery("second", SearchScope.CurrentFolder, 1000, @"C:\Work"));
 
         service.Complete("second");
         var secondResult = second.GetAwaiter().GetResult();

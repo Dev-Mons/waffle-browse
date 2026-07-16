@@ -80,7 +80,7 @@ public sealed class DockLayoutService
             LocationKind = TabLocationKind.Folder,
             SearchQuery = null,
             SearchOriginPath = null,
-            SearchScope = SearchScope.GlobalIndex,
+            SearchScope = SearchScope.CurrentFolder,
             SearchRoots = [],
             BackStack = addHistory ? [.. tab.BackStack, tab.CurrentPath] : [.. tab.BackStack],
             ForwardStack = []
@@ -111,10 +111,8 @@ public sealed class DockLayoutService
             originPath = searchQuery.RootPath ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         }
 
-        var rootPath = searchQuery.Scope == SearchScope.CurrentFolder
-            ? searchQuery.RootPath ?? originPath
-            : null;
-        var searchTarget = WaffleSearchLocation.Build(query, searchQuery.Scope, rootPath);
+        var rootPath = searchQuery.RootPath ?? originPath;
+        var searchTarget = WaffleSearchLocation.Build(query, SearchScope.CurrentFolder, rootPath);
         var backStack = tab.BackStack.ToList();
         if (tab.LocationKind != TabLocationKind.Search && ShouldPushHistory(backStack, originPath))
         {
@@ -128,8 +126,8 @@ public sealed class DockLayoutService
             LocationKind = TabLocationKind.Search,
             SearchQuery = query,
             SearchOriginPath = originPath,
-            SearchScope = searchQuery.Scope,
-            SearchRoots = rootPath is null ? [] : [rootPath],
+            SearchScope = SearchScope.CurrentFolder,
+            SearchRoots = [rootPath],
             BackStack = backStack,
             ForwardStack = []
         };
@@ -158,7 +156,7 @@ public sealed class DockLayoutService
             LocationKind = TabLocationKind.Folder,
             SearchQuery = null,
             SearchOriginPath = null,
-            SearchScope = SearchScope.GlobalIndex,
+            SearchScope = SearchScope.CurrentFolder,
             SearchRoots = [],
             BackStack = backStack,
             ForwardStack = []
@@ -185,7 +183,7 @@ public sealed class DockLayoutService
             LocationKind = TabLocationKind.Folder,
             SearchQuery = null,
             SearchOriginPath = null,
-            SearchScope = SearchScope.GlobalIndex,
+            SearchScope = SearchScope.CurrentFolder,
             SearchRoots = [],
             BackStack = tab.BackStack.Take(tab.BackStack.Count - 1).ToList(),
             ForwardStack = [tab.CurrentPath, .. tab.ForwardStack]
@@ -214,7 +212,7 @@ public sealed class DockLayoutService
                 LocationKind = TabLocationKind.Search,
                 SearchQuery = searchQuery.Text,
                 SearchOriginPath = originPath,
-                SearchScope = searchQuery.Scope,
+                SearchScope = SearchScope.CurrentFolder,
                 SearchRoots = searchQuery.RootPath is null ? [] : [searchQuery.RootPath],
                 BackStack = [.. tab.BackStack, tab.CurrentPath],
                 ForwardStack = tab.ForwardStack.Skip(1).ToList()
@@ -231,7 +229,7 @@ public sealed class DockLayoutService
             LocationKind = TabLocationKind.Folder,
             SearchQuery = null,
             SearchOriginPath = null,
-            SearchScope = SearchScope.GlobalIndex,
+            SearchScope = SearchScope.CurrentFolder,
             SearchRoots = [],
             BackStack = [.. tab.BackStack, tab.CurrentPath],
             ForwardStack = tab.ForwardStack.Skip(1).ToList()

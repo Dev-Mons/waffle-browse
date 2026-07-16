@@ -56,9 +56,11 @@ public partial class MainWindow : Window
     private readonly UiSettingsStore settingsStore;
     private readonly WaffleFileSearchProvider waffleFileSearchProvider;
     private readonly CancellationTokenSource indexCancellation = new();
+    private CancellationTokenSource? activeFolderIndexCancellation;
     private readonly DispatcherTimer searchDebounceTimer;
     private readonly WindowNativeThemeApplier windowNativeThemeApplier = new();
     private readonly NativeFocusEventTracer nativeFocusEventTracer = new();
+    private readonly NativeShellSelectionGestureTracker nativeShellSelectionGestureTracker = new();
     private readonly string fallbackPath;
     private DockLayoutState layoutState;
     private UiSettings settings = new();
@@ -77,17 +79,13 @@ public partial class MainWindow : Window
         settings = settingsStore.Load();
         layoutState = layoutService.CreateDefault(fallbackPath);
         waffleFileSearchProvider = new WaffleFileSearchProvider(
-            new FallbackFileIndexSource(
-                new NtfsMftIndexSource(),
-                new FallbackFileIndexSource(
-                    new NamedPipeFileIndexSource(
-                        new ElevatedIndexerProcessLauncher(
-                            NativeAotIndexerImagePolicy.AcquireNativeAotIndexerImage)),
-                    new RecursiveFileIndexSource())),
-            new JsonFileIndexStore(Path.Combine(appDataPath, "search-index-v3.json")),
-            ResolveIndexRoots(fallbackPath, settings.IndexedNetworkRoots));
+            new RecursiveFileIndexSource(),
+            new JsonFileIndexStore(Path.Combine(appDataPath, "search-index-v4.json")),
+            [],
+            buildOnInitialize: false);
 
         InitializeComponent();
+        waffleFileSearchProvider.IndexStatusChanged += OnFileIndexStatusChanged;
         searchDebounceTimer = new DispatcherTimer(DispatcherPriority.Background)
         {
             Interval = TimeSpan.FromMilliseconds(200)
@@ -117,7 +115,7 @@ public partial class MainWindow : Window
         RenderLayout();
         UpdateSearchBoxFromActiveTab();
         SetStatus("Layout restored.");
-        _ = InitializeFileIndexAsync();
+        UpdateFileIndexStatus();
     }
 
     private void OnClosing(object? sender, CancelEventArgs e)
@@ -130,6 +128,9 @@ public partial class MainWindow : Window
         }
         panelControlsById.Clear();
         indexCancellation.Cancel();
+        activeFolderIndexCancellation?.Cancel();
+        activeFolderIndexCancellation?.Dispose();
+        waffleFileSearchProvider.IndexStatusChanged -= OnFileIndexStatusChanged;
         waffleFileSearchProvider.Dispose();
         indexCancellation.Dispose();
         ComponentDispatcher.ThreadFilterMessage -= OnThreadFilterMessage;
@@ -217,22 +218,6 @@ public partial class MainWindow : Window
         RunQuickSearch();
     }
 
-    private void OnSearchScopeChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (!IsLoaded || isApplyingSettingsToUi)
-        {
-            return;
-        }
-
-        settings = settings with { LastSelectedSearchScope = ResolveSelectedSearchScope() };
-        SaveSettings();
-        if (!string.IsNullOrWhiteSpace(QuickSearchBox.Text))
-        {
-            searchDebounceTimer.Stop();
-            RunQuickSearch();
-        }
-    }
-
     private void RunQuickSearch()
     {
         searchDebounceTimer.Stop();
@@ -251,8 +236,7 @@ public partial class MainWindow : Window
         }
 
         var roots = ResolveCurrentPanelSearchRoots();
-        var scope = ResolveSelectedSearchScope();
-        if (scope == SearchScope.CurrentFolder && roots.Count == 0)
+        if (roots.Count == 0)
         {
             SetStatus("No searchable folder is open.");
             return;
@@ -264,7 +248,7 @@ public partial class MainWindow : Window
                 layoutService.NavigateToSearch(
                     layoutState,
                     panelId.Value,
-                    new SearchQuery(text, scope, 1000, scope == SearchScope.CurrentFolder ? roots[0] : null)),
+                    new SearchQuery(text, SearchScope.CurrentFolder, 1000, roots[0])),
                 "Search opened in current tab.");
         }
         catch (ArgumentException ex)
@@ -414,8 +398,14 @@ public partial class MainWindow : Window
 
     private void ScheduleNativeShellSelectionSync(MSG msg)
     {
-        if (msg.message != WmLButtonUp || IsSelectionModifierPressed())
+        if (msg.message is not WmLButtonDown and not WmLButtonUp)
         {
+            return;
+        }
+
+        if (IsSelectionModifierPressed())
+        {
+            nativeShellSelectionGestureTracker.Cancel();
             return;
         }
 
@@ -426,11 +416,38 @@ public partial class MainWindow : Window
                 continue;
             }
 
+            if (!GetCursorPos(out var screenPoint))
+            {
+                nativeShellSelectionGestureTracker.Cancel();
+                return;
+            }
+
+            if (msg.message == WmLButtonDown)
+            {
+                nativeShellSelectionGestureTracker.Begin(panelId, screenPoint.X, screenPoint.Y);
+                return;
+            }
+
+            if (!nativeShellSelectionGestureTracker.Complete(
+                    panelId,
+                    screenPoint.X,
+                    screenPoint.Y,
+                    SystemParameters.MinimumHorizontalDragDistance,
+                    SystemParameters.MinimumVerticalDragDistance))
+            {
+                return;
+            }
+
             var targetWindow = msg.hwnd;
             Dispatcher.BeginInvoke(
                 () => SelectFocusedShellItemAfterMessage(panelId, targetWindow, ShellFocusedItemSelectionMode.Mouse),
                 DispatcherPriority.Background);
             return;
+        }
+
+        if (msg.message == WmLButtonUp)
+        {
+            nativeShellSelectionGestureTracker.Cancel();
         }
     }
 
@@ -1184,7 +1201,6 @@ public partial class MainWindow : Window
         {
             ApplyTheme(settings.Theme);
             DarkModeToggle.IsChecked = settings.Theme == UiTheme.Dark;
-            SearchScopeBox.SelectedIndex = settings.LastSelectedSearchScope == SearchScope.CurrentFolder ? 1 : 0;
         }
         finally
         {
@@ -1196,8 +1212,7 @@ public partial class MainWindow : Window
     {
         settings = settings with
         {
-            Theme = ResolveSelectedTheme(),
-            LastSelectedSearchScope = ResolveSelectedSearchScope()
+            Theme = ResolveSelectedTheme()
         };
 
         try
@@ -1247,19 +1262,6 @@ public partial class MainWindow : Window
             ? activeTab.SearchQuery ?? string.Empty
             : string.Empty;
 
-        if (activeTab is { LocationKind: TabLocationKind.Search })
-        {
-            isApplyingSettingsToUi = true;
-            try
-            {
-                SearchScopeBox.SelectedIndex = activeTab.SearchScope == SearchScope.CurrentFolder ? 1 : 0;
-            }
-            finally
-            {
-                isApplyingSettingsToUi = false;
-            }
-        }
-
         if (string.Equals(QuickSearchBox.Text, text, StringComparison.Ordinal))
         {
             return;
@@ -1304,57 +1306,143 @@ public partial class MainWindow : Window
         StatusText.Text = message;
     }
 
-    private UiTheme ResolveSelectedTheme()
+    private async void OnQuickSearchGotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
     {
-        return DarkModeToggle.IsChecked == true ? UiTheme.Dark : UiTheme.Light;
-    }
+        var root = ResolveCurrentPanelSearchRoots().FirstOrDefault();
+        if (root is null)
+        {
+            SetStatus("색인할 수 있는 폴더가 현재 탭에 열려 있지 않습니다.");
+            return;
+        }
 
-    private SearchScope ResolveSelectedSearchScope()
-    {
-        return SearchScopeBox.SelectedIndex == 1 ? SearchScope.CurrentFolder : SearchScope.GlobalIndex;
-    }
+        if (waffleFileSearchProvider.IndexRoots.Count == 1
+            && string.Equals(waffleFileSearchProvider.IndexRoots[0], root, StringComparison.OrdinalIgnoreCase)
+            && waffleFileSearchProvider.State.BuildState is FileIndexBuildState.Ready or FileIndexBuildState.Rebuilding)
+        {
+            return;
+        }
 
-    private async Task InitializeFileIndexAsync()
-    {
+        activeFolderIndexCancellation?.Cancel();
+        activeFolderIndexCancellation?.Dispose();
+        activeFolderIndexCancellation = CancellationTokenSource.CreateLinkedTokenSource(indexCancellation.Token);
+        var cancellationToken = activeFolderIndexCancellation.Token;
+
         try
         {
-            await waffleFileSearchProvider.InitializeAsync(indexCancellation.Token);
-            var status = await waffleFileSearchProvider.CheckStatusAsync(indexCancellation.Token);
+            SetStatus($"현재 탭 폴더를 색인합니다: {root}");
+            await waffleFileSearchProvider.IndexFolderAsync(root, cancellationToken);
+            var status = await waffleFileSearchProvider.CheckStatusAsync(cancellationToken);
             SetStatus(status.Message);
         }
         catch (OperationCanceledException)
         {
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is IOException
+                                   or UnauthorizedAccessException
+                                   or ArgumentException
+                                   or NotSupportedException)
         {
-            SetStatus($"Waffle 인덱스를 준비하지 못했습니다: {ex.Message}");
+            SetStatus($"현재 폴더 색인을 준비하지 못했습니다: {ex.Message}");
         }
+    }
+
+    private void OnFileIndexStatusChanged(object? sender, EventArgs e)
+    {
+        if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+        {
+            return;
+        }
+
+        if (!Dispatcher.CheckAccess())
+        {
+            _ = Dispatcher.BeginInvoke(UpdateFileIndexStatus, DispatcherPriority.Background);
+            return;
+        }
+
+        UpdateFileIndexStatus();
+    }
+
+    private void UpdateFileIndexStatus()
+    {
+        var state = waffleFileSearchProvider.State;
+        var progress = waffleFileSearchProvider.Progress;
+        var isBusy = state.BuildState is FileIndexBuildState.Loading
+            or FileIndexBuildState.Rebuilding;
+
+        IndexStatusBar.Visibility = isBusy
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+
+        IndexProgressBar.IsIndeterminate = isBusy;
+        IndexProgressBar.Maximum = 1;
+        IndexProgressBar.Value = state.BuildState == FileIndexBuildState.Ready ? 1 : 0;
+        IndexCountText.Text = isBusy
+            ? $"{progress.DiscoveredItemCount:N0}개 발견"
+            : $"{state.ItemCount:N0}개 항목";
+
+        IndexStatusText.Text = state.BuildState switch
+        {
+            FileIndexBuildState.Loading => "캐시 읽는 중",
+            FileIndexBuildState.Rebuilding => "색인 중",
+            FileIndexBuildState.Ready => "색인 완료",
+            FileIndexBuildState.NeedsRebuild => "재색인 필요",
+            FileIndexBuildState.Failed => "색인 실패",
+            _ => "색인 대기"
+        };
+
+        if (isBusy)
+        {
+            IndexProgressText.Text = progress.TotalRootCount > 0
+                ? $"경로 {progress.CompletedRootCount:N0}/{progress.TotalRootCount:N0}"
+                : "대상 확인 중";
+            IndexDetailText.Text = progress.CurrentRoot is { Length: > 0 }
+                ? $"현재 색인: {progress.CurrentRoot}"
+                : $"색인 대상: {string.Join(" · ", waffleFileSearchProvider.IndexRoots)}";
+        }
+        else
+        {
+            IndexProgressText.Text = state.LastCompletedAt is { } completedAt
+                ? $"완료 {completedAt.ToLocalTime():yyyy-MM-dd HH:mm:ss}"
+                : string.Empty;
+            var roots = waffleFileSearchProvider.IndexRoots.Count == 0
+                ? "검색창을 선택하면 현재 탭 폴더를 색인합니다."
+                : $"색인 대상: {string.Join(" · ", waffleFileSearchProvider.IndexRoots)}";
+            IndexDetailText.Text = string.IsNullOrWhiteSpace(state.ErrorMessage)
+                ? roots
+                : $"{roots} · 알림: {state.ErrorMessage}";
+        }
+
+        IndexDetailText.ToolTip = IndexDetailText.Text;
+    }
+
+    private UiTheme ResolveSelectedTheme()
+    {
+        return DarkModeToggle.IsChecked == true ? UiTheme.Dark : UiTheme.Light;
     }
 
     private static IReadOnlyList<string> ResolveIndexRoots(
         string fallback,
+        IReadOnlyList<string>? indexedLocalRoots,
         IReadOnlyList<string>? indexedNetworkRoots)
     {
-        var roots = new List<string>();
-        try
+        var roots = new List<string> { Path.GetFullPath(fallback) };
+        foreach (var configuredRoot in indexedLocalRoots ?? [])
         {
-            foreach (var drive in DriveInfo.GetDrives())
+            try
             {
-                try
+                var root = Path.GetFullPath(configuredRoot);
+                if (!root.StartsWith(@"\\", StringComparison.Ordinal)
+                    && Directory.Exists(root))
                 {
-                    if (drive.IsReady
-                        && drive.DriveType == DriveType.Fixed)
-                    {
-                        roots.Add(drive.RootDirectory.FullName);
-                    }
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
+                    roots.Add(root);
                 }
             }
-        }
-        catch (IOException)
-        {
+            catch (Exception ex) when (ex is ArgumentException
+                                       or NotSupportedException
+                                       or PathTooLongException
+                                       or UnauthorizedAccessException)
+            {
+            }
         }
 
         foreach (var configuredRoot in indexedNetworkRoots ?? [])
@@ -1372,9 +1460,7 @@ public partial class MainWindow : Window
             }
         }
 
-        return roots.Count > 0
-            ? roots.Distinct(StringComparer.OrdinalIgnoreCase).ToList()
-            : [fallback];
+        return roots.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     private void ApplyTheme(UiTheme theme)

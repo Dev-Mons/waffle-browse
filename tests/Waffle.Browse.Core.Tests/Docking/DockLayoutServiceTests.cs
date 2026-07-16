@@ -263,14 +263,15 @@ internal static class DockLayoutServiceTests
         state = service.NavigateToSearch(
             state,
             panel.Id,
-            new SearchQuery("report", SearchScope.GlobalIndex, 1000));
+            new SearchQuery("report", SearchScope.CurrentFolder, 1000, @"C:\Work"));
         var tab = state.FindPanel(panel.Id).ActiveTab!;
 
         TestAssert.Equal(TabLocationKind.Search, tab.LocationKind, "Search should mark the active tab as a search location");
         TestAssert.Equal("검색: report", tab.Title, "Search tab title should show the query");
         TestAssert.Equal("report", tab.SearchQuery, "Search query should be stored on the tab");
         TestAssert.Equal(@"C:\Work", tab.SearchOriginPath, "Search origin should be the folder that was searched");
-        TestAssert.Equal(SearchScope.GlobalIndex, tab.SearchScope, "Global search scope should be stored on the tab");
+        TestAssert.Equal(SearchScope.CurrentFolder, tab.SearchScope, "Current-folder search scope should be stored on the tab");
+        TestAssert.Equal(@"C:\Work", tab.SearchRoots.Single(), "The active folder should be the only search root");
         TestAssert.True(tab.CurrentPath.StartsWith("waffle-search:", StringComparison.Ordinal), "Search should use an internal Waffle target");
         TestAssert.Equal(@"C:\Work", tab.BackStack[^1], "Back should return to the searched folder");
     }
@@ -301,7 +302,7 @@ internal static class DockLayoutServiceTests
         var state = service.CreateDefault(@"C:\Work");
         var panel = state.VisiblePanels[0];
 
-        state = service.NavigateToSearch(state, panel.Id, new SearchQuery("report", SearchScope.GlobalIndex, 1000));
+        state = service.NavigateToSearch(state, panel.Id, new SearchQuery("report", SearchScope.CurrentFolder, 1000, @"C:\Work"));
         state = service.NavigateBack(state, panel.Id);
         TestAssert.Equal(TabLocationKind.Folder, state.FindPanel(panel.Id).ActiveTab!.LocationKind, "Back should restore the origin folder");
 
