@@ -163,7 +163,6 @@ public partial class ExplorerPanelControl : UserControl, IDisposable
         RootBorder.BorderBrush = isActive
             ? (Brush)FindResource("ActivePanelBorderBrush")
             : (Brush)FindResource("PanelBorderBrush");
-        RootBorder.BorderThickness = new Thickness(2);
     }
 
     private ShellExplorerHost CreateShellHost()
@@ -311,6 +310,23 @@ public partial class ExplorerPanelControl : UserControl, IDisposable
             TabCloseRequested?.Invoke(this, new PanelTabRequestedEventArgs(Panel.Id, tab.Id));
             e.Handled = true;
         }
+    }
+
+    private void OnCloseTabButtonClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: TabState tab })
+        {
+            RequestPanelFocus();
+            TabCloseRequested?.Invoke(this, new PanelTabRequestedEventArgs(Panel.Id, tab.Id));
+            e.Handled = true;
+        }
+    }
+
+    private void OnAddTabClick(object sender, RoutedEventArgs e)
+    {
+        RequestPanelFocus();
+        TabAddRequested?.Invoke(this, new PanelTabRequestedEventArgs(Panel.Id, Guid.Empty));
+        e.Handled = true;
     }
 
     private void OnOpenTabMenuItemClick(object sender, RoutedEventArgs e)

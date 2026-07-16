@@ -1,12 +1,17 @@
 <UserControl x:Class="Waffle.Browse.App.Controls.ExplorerPanelControl"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             Foreground="{DynamicResource PrimaryTextBrush}">
+             Foreground="{DynamicResource PrimaryTextBrush}"
+             FontFamily="Segoe UI"
+             FontSize="13">
     <Border x:Name="RootBorder"
-            Margin="0"
+            Margin="2"
+            Padding="0"
             Background="{DynamicResource PanelBackgroundBrush}"
             BorderBrush="{DynamicResource PanelBorderBrush}"
-            BorderThickness="2">
+            BorderThickness="2"
+            CornerRadius="0"
+            SnapsToDevicePixels="True">
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
@@ -14,101 +19,150 @@
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <DockPanel Grid.Row="0"
-                       Background="{DynamicResource ToolbarBackgroundBrush}"
-                       LastChildFill="True"
-                       MinHeight="28">
-                <ListBox x:Name="TabsListBox"
-                          AutomationProperties.AutomationId="TabsListBox"
-                          BorderThickness="0"
-                          Background="Transparent"
-                          Focusable="False"
-                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                          SelectionChanged="OnTabSelectionChanged"
-                          PreviewMouseLeftButtonDown="OnTabMouseLeftButtonDown"
-                          PreviewMouseMove="OnTabPreviewMouseMove">
-                    <ListBox.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <StackPanel Orientation="Horizontal" />
-                        </ItemsPanelTemplate>
-                    </ListBox.ItemsPanel>
-                    <ListBox.ItemContainerStyle>
-                        <Style TargetType="{x:Type ListBoxItem}">
-                            <Setter Property="Background" Value="Transparent" />
-                            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
-                            <Setter Property="Focusable" Value="False" />
-                            <Setter Property="Padding" Value="0" />
-                            <EventSetter Event="PreviewMouseDown"
-                                         Handler="OnTabPreviewMouseDown" />
-                            <EventSetter Event="PreviewMouseRightButtonDown"
-                                          Handler="OnTabPreviewMouseRightButtonDown" />
-                            <Style.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Background" Value="{DynamicResource TabHoverBackgroundBrush}" />
-                                </Trigger>
-                                <Trigger Property="IsSelected" Value="True">
-                                    <Setter Property="Background" Value="{DynamicResource TabSelectedBackgroundBrush}" />
-                                    <Setter Property="Foreground" Value="{DynamicResource TabSelectedForegroundBrush}" />
-                                </Trigger>
-                            </Style.Triggers>
-                        </Style>
-                    </ListBox.ItemContainerStyle>
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <DockPanel MinWidth="92"
-                                       MaxWidth="180"
-                                       LastChildFill="True">
-                                <DockPanel.ContextMenu>
-                                    <ContextMenu>
-                                        <MenuItem Header="탭 닫기"
-                                                  Click="OnCloseTabMenuItemClick" />
-                                        <MenuItem Header="열기"
-                                                  Click="OnOpenTabMenuItemClick" />
-                                    </ContextMenu>
-                                </DockPanel.ContextMenu>
-                                <TextBlock DockPanel.Dock="Left"
-                                           Width="16"
-                                           Margin="6,0,0,0"
-                                           VerticalAlignment="Center"
-                                           FontFamily="Segoe MDL2 Assets"
-                                           Foreground="{DynamicResource SubtleTextBrush}"
-                                           Text="&#xE8B7;" />
-                                <TextBlock Text="{Binding Title}"
-                                           Margin="6,0"
-                                           VerticalAlignment="Center"
-                                           TextTrimming="CharacterEllipsis" />
-                            </DockPanel>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-            </DockPanel>
+            <Border Grid.Row="0"
+                    MinHeight="36"
+                    Padding="4,3"
+                    Background="{DynamicResource PanelHeaderBackgroundBrush}"
+                    BorderBrush="{DynamicResource DividerBrush}"
+                    BorderThickness="0,0,0,1">
+                <DockPanel LastChildFill="True">
+                    <Button x:Name="AddTabButton"
+                            DockPanel.Dock="Right"
+                            Style="{StaticResource NavButtonStyle}"
+                            AutomationProperties.AutomationId="AddTabButton"
+                            AutomationProperties.Name="새 탭"
+                            Content="&#xE710;"
+                            ToolTip="새 탭"
+                            Click="OnAddTabClick" />
 
-            <DockPanel Grid.Row="1"
-                       Margin="6,2">
-                <Button DockPanel.Dock="Left"
-                        Style="{StaticResource NavButtonStyle}"
-                        AutomationProperties.AutomationId="BackButton"
-                        Content="&#xE72B;"
-                        ToolTip="Back"
-                        Click="OnBackClick" />
-                <Button DockPanel.Dock="Left"
-                        Style="{StaticResource NavButtonStyle}"
-                        AutomationProperties.AutomationId="ForwardButton"
-                        Content="&#xE72A;"
-                        ToolTip="Forward"
-                        Click="OnForwardClick" />
-                <Button DockPanel.Dock="Left"
-                        Style="{StaticResource NavButtonStyle}"
-                        AutomationProperties.AutomationId="UpButton"
-                        Content="&#xE74A;"
-                        ToolTip="Parent folder"
-                        Click="OnUpClick" />
-                <TextBox x:Name="AddressBox"
-                         AutomationProperties.AutomationId="AddressBox"
-                         Margin="6,0,0,0"
-                         VerticalContentAlignment="Center"
-                         KeyDown="OnAddressKeyDown" />
-            </DockPanel>
+                    <ListBox x:Name="TabsListBox"
+                             AutomationProperties.AutomationId="TabsListBox"
+                             BorderThickness="0"
+                             Background="Transparent"
+                             Focusable="False"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             SelectionChanged="OnTabSelectionChanged"
+                             PreviewMouseLeftButtonDown="OnTabMouseLeftButtonDown"
+                             PreviewMouseMove="OnTabPreviewMouseMove">
+                        <ListBox.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                        </ListBox.ItemsPanel>
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="{x:Type ListBoxItem}">
+                                <Setter Property="Background" Value="Transparent" />
+                                <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}" />
+                                <Setter Property="Focusable" Value="False" />
+                                <Setter Property="Padding" Value="0" />
+                                <Setter Property="Margin" Value="0,0,4,0" />
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <Border x:Name="TabBorder"
+                                                    Background="{TemplateBinding Background}"
+                                                    CornerRadius="6"
+                                                    SnapsToDevicePixels="True">
+                                                <ContentPresenter />
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="TabBorder" Property="Background" Value="{DynamicResource TabHoverBackgroundBrush}" />
+                                                </Trigger>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="TabBorder" Property="Background" Value="{DynamicResource TabSelectedBackgroundBrush}" />
+                                                    <Setter Property="Foreground" Value="{DynamicResource TabSelectedForegroundBrush}" />
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                                <EventSetter Event="PreviewMouseDown"
+                                             Handler="OnTabPreviewMouseDown" />
+                                <EventSetter Event="PreviewMouseRightButtonDown"
+                                             Handler="OnTabPreviewMouseRightButtonDown" />
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <DockPanel MinWidth="96"
+                                           MaxWidth="210"
+                                           Height="28"
+                                           LastChildFill="True">
+                                    <DockPanel.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem Header="탭 닫기"
+                                                      Click="OnCloseTabMenuItemClick" />
+                                            <MenuItem Header="열기"
+                                                      Click="OnOpenTabMenuItemClick" />
+                                        </ContextMenu>
+                                    </DockPanel.ContextMenu>
+                                    <Button DockPanel.Dock="Right"
+                                            Style="{StaticResource TabCloseButtonStyle}"
+                                            AutomationProperties.Name="탭 닫기"
+                                            Content="&#xE711;"
+                                            ToolTip="탭 닫기"
+                                            Click="OnCloseTabButtonClick" />
+                                    <TextBlock DockPanel.Dock="Left"
+                                               Width="16"
+                                               Margin="7,0,0,0"
+                                               VerticalAlignment="Center"
+                                               FontFamily="Segoe MDL2 Assets"
+                                               Foreground="{DynamicResource SubtleTextBrush}"
+                                               Text="&#xE8B7;" />
+                                    <TextBlock Margin="6,0,5,0"
+                                               VerticalAlignment="Center"
+                                               Text="{Binding Title}"
+                                               TextTrimming="CharacterEllipsis"
+                                               ToolTip="{Binding Title}" />
+                                </DockPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+
+            <Border Grid.Row="1"
+                    Padding="4"
+                    Background="{DynamicResource PanelBackgroundBrush}"
+                    BorderBrush="{DynamicResource DividerBrush}"
+                    BorderThickness="0,0,0,1">
+                <DockPanel LastChildFill="True">
+                    <Button DockPanel.Dock="Left"
+                            Style="{StaticResource NavButtonStyle}"
+                            AutomationProperties.AutomationId="BackButton"
+                            AutomationProperties.Name="뒤로"
+                            Content="&#xE72B;"
+                            ToolTip="뒤로"
+                            Click="OnBackClick" />
+                    <Button DockPanel.Dock="Left"
+                            Style="{StaticResource NavButtonStyle}"
+                            AutomationProperties.AutomationId="ForwardButton"
+                            AutomationProperties.Name="앞으로"
+                            Content="&#xE72A;"
+                            ToolTip="앞으로"
+                            Click="OnForwardClick" />
+                    <Button DockPanel.Dock="Left"
+                            Style="{StaticResource NavButtonStyle}"
+                            AutomationProperties.AutomationId="UpButton"
+                            AutomationProperties.Name="상위 폴더"
+                            Content="&#xE74A;"
+                            ToolTip="상위 폴더"
+                            Click="OnUpClick" />
+                    <TextBox x:Name="AddressBox"
+                             AutomationProperties.AutomationId="AddressBox"
+                             AutomationProperties.Name="현재 경로"
+                             Height="32"
+                             Margin="5,0,0,0"
+                             Padding="9,2"
+                             VerticalContentAlignment="Center"
+                             AcceptsReturn="False"
+                             TextWrapping="NoWrap"
+                             ScrollViewer.HorizontalScrollBarVisibility="Hidden"
+                             ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                             KeyDown="OnAddressKeyDown" />
+                </DockPanel>
+            </Border>
 
             <Grid x:Name="ShellHostArea"
                   AutomationProperties.AutomationId="ShellHostArea"

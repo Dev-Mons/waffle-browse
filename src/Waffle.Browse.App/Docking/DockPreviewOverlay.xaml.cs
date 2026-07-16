@@ -32,7 +32,7 @@ public partial class DockPreviewOverlay : UserControl
         IsHitTestVisible = true;
         PreviewBorder.Visibility = Visibility.Visible;
         PreviewBorder.BorderBrush = preview.Accepted
-            ? Brushes.DodgerBlue
+            ? (Brush)FindResource("DockPreviewBorderBrush")
             : Brushes.IndianRed;
         Canvas.SetLeft(PreviewBorder, preview.PreviewBounds.X);
         Canvas.SetTop(PreviewBorder, preview.PreviewBounds.Y);

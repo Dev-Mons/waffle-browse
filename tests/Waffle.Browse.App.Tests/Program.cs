@@ -8,6 +8,7 @@ using Waffle.Browse.App.Tests.Theming;
 var tests = new (string Name, Action Run)[]
 {
     ("Search toolbar uses current folder only", MainWindowSearchToolbarTests.SearchToolbarUsesCurrentFolderOnly),
+    ("Main window uses Waffle toolbar hierarchy", MainWindowSearchToolbarTests.MainWindowUsesWaffleToolbarHierarchy),
     ("Main window exposes file index progress", MainWindowSearchToolbarTests.MainWindowExposesFileIndexProgress),
     ("File index status bar only shows while busy", MainWindowSearchToolbarTests.FileIndexStatusBarOnlyShowsWhileBusy),
     ("Search focus starts current folder indexing", MainWindowSearchToolbarTests.SearchFocusStartsCurrentFolderIndexing),
@@ -63,6 +64,7 @@ var tests = new (string Name, Action Run)[]
     ("Explorer panel active state does not resize shell host", ExplorerPanelControlFocusTests.ActiveStateUpdateDoesNotChangeLayoutThickness),
     ("Explorer panel active state does not rewrite content", ExplorerPanelControlFocusTests.ActiveStateUpdateDoesNotRewritePanelContent),
     ("Explorer panel tabs do not accept keyboard focus", ExplorerPanelControlFocusTests.TabsListBoxDoesNotAcceptKeyboardFocus),
+    ("Explorer panel uses soft-grid chrome", ExplorerPanelControlVisualTests.ExplorerPanelUsesSoftGridChrome),
     ("UI settings store round-trips theme", UiSettingsStoreTests.UiSettingsStoreRoundTripsTheme),
     ("UI settings store round-trips index roots", UiSettingsStoreTests.UiSettingsStoreRoundTripsIndexRoots),
     ("Application data path uses current directory for new installs", ApplicationDataPathTests.ResolveUsesCurrentDirectoryForNewInstall),

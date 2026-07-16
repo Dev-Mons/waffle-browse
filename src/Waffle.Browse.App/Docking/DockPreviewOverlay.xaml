@@ -10,10 +10,10 @@
     <Canvas x:Name="RootCanvas"
             Background="Transparent">
         <Border x:Name="PreviewBorder"
-                Background="#332F6FED"
-                BorderBrush="#992F6FED"
+                Background="{DynamicResource DockPreviewBackgroundBrush}"
+                BorderBrush="{DynamicResource DockPreviewBorderBrush}"
                 BorderThickness="2"
-                CornerRadius="2"
+                CornerRadius="10"
                 Visibility="Collapsed" />
     </Canvas>
 </UserControl>

@@ -114,7 +114,7 @@ public partial class MainWindow : Window
         layoutState = layoutStore.LoadOrDefault(fallbackPath, Directory.Exists);
         RenderLayout();
         UpdateSearchBoxFromActiveTab();
-        SetStatus("Layout restored.");
+        SetStatus("레이아웃을 복원했습니다.");
         UpdateFileIndexStatus();
     }
 
@@ -140,27 +140,27 @@ public partial class MainWindow : Window
 
     private void OnOnePanelClick(object sender, RoutedEventArgs e)
     {
-        ApplyLayout(layoutService.SetVisiblePanelCount(layoutState, 1), "Single panel layout.");
+        ApplyLayout(layoutService.SetVisiblePanelCount(layoutState, 1), "단일 패널 레이아웃입니다.");
     }
 
     private void OnTwoColumnClick(object sender, RoutedEventArgs e)
     {
-        ApplyLayout(layoutService.SetLayout(layoutState, DockLayoutKind.OneByTwo), "Two-column layout.");
+        ApplyLayout(layoutService.SetLayout(layoutState, DockLayoutKind.OneByTwo), "두 열 레이아웃입니다.");
     }
 
     private void OnTwoRowClick(object sender, RoutedEventArgs e)
     {
-        ApplyLayout(layoutService.SetLayout(layoutState, DockLayoutKind.TwoByOne), "Two-row layout.");
+        ApplyLayout(layoutService.SetLayout(layoutState, DockLayoutKind.TwoByOne), "두 행 레이아웃입니다.");
     }
 
     private void OnThreePanelClick(object sender, RoutedEventArgs e)
     {
-        ApplyLayout(layoutService.SetVisiblePanelCount(layoutState, 3), "Three-panel layout.");
+        ApplyLayout(layoutService.SetVisiblePanelCount(layoutState, 3), "세 패널 레이아웃입니다.");
     }
 
     private void OnFourPanelClick(object sender, RoutedEventArgs e)
     {
-        ApplyLayout(layoutService.SetVisiblePanelCount(layoutState, 4), "Four-panel layout.");
+        ApplyLayout(layoutService.SetVisiblePanelCount(layoutState, 4), "네 패널 레이아웃입니다.");
     }
 
     private void OnThemeToggleChanged(object sender, RoutedEventArgs e)
@@ -174,7 +174,7 @@ public partial class MainWindow : Window
         settings = settings with { Theme = theme };
         ApplyTheme(theme);
         SaveSettings();
-        SetStatus(theme == UiTheme.Dark ? "Dark mode enabled." : "Light mode enabled.");
+        SetStatus(theme == UiTheme.Dark ? "다크 모드를 사용합니다." : "라이트 모드를 사용합니다.");
     }
 
     private void OnQuickSearchClick(object sender, RoutedEventArgs e)
@@ -231,14 +231,14 @@ public partial class MainWindow : Window
         var panelId = ActiveOrFirstVisiblePanelId();
         if (panelId is null)
         {
-            SetStatus("No panel is available for search.");
+            SetStatus("검색할 수 있는 패널이 없습니다.");
             return;
         }
 
         var roots = ResolveCurrentPanelSearchRoots();
         if (roots.Count == 0)
         {
-            SetStatus("No searchable folder is open.");
+            SetStatus("검색할 수 있는 폴더가 열려 있지 않습니다.");
             return;
         }
 
@@ -274,7 +274,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        ApplyLayout(nextState, "Search cleared.");
+        ApplyLayout(nextState, "검색을 지웠습니다.");
     }
 
     private List<string> ResolveCurrentPanelSearchRoots()
@@ -911,11 +911,11 @@ public partial class MainWindow : Window
     {
         if (string.IsNullOrWhiteSpace(e.Path))
         {
-            SetStatus("Path is empty.");
+            SetStatus("경로가 비어 있습니다.");
             return;
         }
 
-        ApplyLayout(layoutService.NavigateTo(layoutState, e.PanelId, e.Path), "Path updated.");
+        ApplyLayout(layoutService.NavigateTo(layoutState, e.PanelId, e.Path), "경로를 변경했습니다.");
     }
 
     private void OnPanelShellPathChanged(object? sender, PanelPathSubmittedEventArgs e)
@@ -934,7 +934,7 @@ public partial class MainWindow : Window
         var tab = layoutState.FindPanel(e.PanelId).ActiveTab;
         if (tab is null)
         {
-            SetStatus("Shell navigation failed.");
+            SetStatus("폴더로 이동하지 못했습니다.");
             return;
         }
 
@@ -943,7 +943,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        SetStatus("Shell navigation failed.");
+        SetStatus("폴더로 이동하지 못했습니다.");
     }
 
     private void OnTabAddRequested(object? sender, PanelTabRequestedEventArgs e)
@@ -952,12 +952,12 @@ public partial class MainWindow : Window
         var path = panel.ActiveTab is { LocationKind: TabLocationKind.Search } searchTab
             ? searchTab.SearchOriginPath ?? fallbackPath
             : panel.ActiveTab?.CurrentPath ?? fallbackPath;
-        ApplyLayout(layoutService.AddTab(layoutState, e.PanelId, path), "Tab added.");
+        ApplyLayout(layoutService.AddTab(layoutState, e.PanelId, path), "새 탭을 추가했습니다.");
     }
 
     private void OnTabCloseRequested(object? sender, PanelTabRequestedEventArgs e)
     {
-        ApplyLayout(layoutService.CloseTab(layoutState, e.PanelId, e.TabId), "Tab closed.");
+        ApplyLayout(layoutService.CloseTab(layoutState, e.PanelId, e.TabId), "탭을 닫았습니다.");
     }
 
     private void OnTabOpenRequested(object? sender, PanelTabRequestedEventArgs e)
@@ -966,7 +966,7 @@ public partial class MainWindow : Window
         var tab = panel.Tabs.FirstOrDefault(item => item.Id == e.TabId);
         if (tab is null || string.IsNullOrWhiteSpace(tab.CurrentPath))
         {
-            SetStatus("Tab path is empty.");
+            SetStatus("탭 경로가 비어 있습니다.");
             return;
         }
 
@@ -975,18 +975,18 @@ public partial class MainWindow : Window
             : tab.CurrentPath;
         if (string.IsNullOrWhiteSpace(openPath))
         {
-            SetStatus("Tab path is empty.");
+            SetStatus("탭 경로가 비어 있습니다.");
             return;
         }
 
         try
         {
             OpenFolderInExplorer(openPath);
-            SetStatus("Tab folder opened.");
+            SetStatus("탭 폴더를 열었습니다.");
         }
         catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
         {
-            SetStatus($"Could not open folder: {ex.Message}");
+            SetStatus($"폴더를 열 수 없습니다: {ex.Message}");
         }
     }
 
@@ -1128,18 +1128,18 @@ public partial class MainWindow : Window
 
         if (preview is null)
         {
-            SetStatus("No dock target under pointer.");
+            SetStatus("포인터 아래에 도킹할 패널이 없습니다.");
             return;
         }
 
         var result = layoutService.CommitDrop(layoutState, payload, preview);
         if (!result.Accepted)
         {
-            SetStatus(result.Reason ?? "Docking was not accepted.");
+            SetStatus(result.Reason ?? "도킹할 수 없습니다.");
             return;
         }
 
-        ApplyLayout(result.State, "Docked tab.");
+        ApplyLayout(result.State, "탭을 도킹했습니다.");
     }
 
     private DockDropPreview? CreateDropPreview(DockDragPayload payload, Point workspacePointer)
@@ -1221,7 +1221,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            SetStatus($"Could not save settings: {ex.Message}");
+            SetStatus($"설정을 저장할 수 없습니다: {ex.Message}");
         }
     }
 
@@ -1297,7 +1297,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            SetStatus($"Could not save layout: {ex.Message}");
+            SetStatus($"레이아웃을 저장할 수 없습니다: {ex.Message}");
         }
     }
 

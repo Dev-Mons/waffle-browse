@@ -14,11 +14,12 @@ internal static class AppThemeResourcesTests
 
         AppThemeResources.Apply(resources, UiTheme.Dark);
 
-        AssertBrushColor(resources, AppThemeResources.WindowBackgroundBrushKey, "#FF101820");
-        AssertBrushColor(resources, AppThemeResources.PanelBackgroundBrushKey, "#FF151F2A");
-        AssertBrushColor(resources, AppThemeResources.ToolbarBackgroundBrushKey, "#FF1E2A36");
-        AssertBrushColor(resources, AppThemeResources.PrimaryTextBrushKey, "#FFEEF3F8");
-        AssertBrushColor(resources, AppThemeResources.ControlBackgroundBrushKey, "#FF243241");
+        AssertBrushColor(resources, AppThemeResources.WindowBackgroundBrushKey, "#FF1C1A17");
+        AssertBrushColor(resources, AppThemeResources.PanelBackgroundBrushKey, "#FF24211C");
+        AssertBrushColor(resources, AppThemeResources.ToolbarBackgroundBrushKey, "#FF211F1B");
+        AssertBrushColor(resources, AppThemeResources.PrimaryTextBrushKey, "#FFF5EFE4");
+        AssertBrushColor(resources, AppThemeResources.ControlBackgroundBrushKey, "#FF2E2A24");
+        AssertBrushColor(resources, AppThemeResources.ActivePanelBorderBrushKey, "#FFD99018");
     }
 
     public static void ApplyLightThemeUsesLightShellHostBackground()

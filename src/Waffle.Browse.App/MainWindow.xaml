@@ -8,19 +8,21 @@
         Title="Waffle Browse"
         MinHeight="520"
         MinWidth="860"
-        Height="720"
-        Width="1180"
+        Height="800"
+        Width="1280"
         Icon="Assets/AppIcon.ico"
         Loaded="OnLoaded"
         Closing="OnClosing"
         Background="{DynamicResource WindowBackgroundBrush}"
-        Foreground="{DynamicResource PrimaryTextBrush}">
+        Foreground="{DynamicResource PrimaryTextBrush}"
+        FontFamily="Segoe UI"
+        FontSize="13">
     <DockPanel LastChildFill="True">
         <Border DockPanel.Dock="Top"
                 Background="{DynamicResource ToolbarBackgroundBrush}"
-                BorderBrush="{DynamicResource PanelBorderBrush}"
+                BorderBrush="{DynamicResource DividerBrush}"
                 BorderThickness="0,0,0,1"
-                Padding="10,3">
+                Padding="12,5">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
@@ -28,69 +30,133 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <TextBlock Text="Waffle Browse"
-                           VerticalAlignment="Center"
-                           FontSize="18"
-                           FontWeight="SemiBold"
-                           Foreground="{DynamicResource PrimaryTextBrush}" />
+                <StackPanel Orientation="Horizontal"
+                            VerticalAlignment="Center">
+                    <Image Width="22"
+                           Height="22"
+                           Margin="0,0,8,0"
+                           Source="Assets/AppIcon.png"
+                           Stretch="Uniform" />
+                    <TextBlock Text="Waffle Browse"
+                               VerticalAlignment="Center"
+                               FontSize="18"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource PrimaryTextBrush}" />
+                </StackPanel>
 
-                <DockPanel Grid.Column="1"
-                           Margin="16,0"
-                           LastChildFill="True">
-                    <StackPanel DockPanel.Dock="Left"
-                                Orientation="Horizontal"
+                <Grid Grid.Column="1"
+                      Margin="22,0,14,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Orientation="Horizontal"
                                 VerticalAlignment="Center">
                         <TextBox x:Name="QuickSearchBox"
                                  AutomationProperties.AutomationId="QuickSearchBox"
-                                 Width="330"
-                                 MinHeight="24"
+                                 AutomationProperties.Name="파일 및 폴더 검색"
+                                 Tag="파일 및 폴더 검색"
+                                 Width="400"
+                                 Height="32"
                                  VerticalContentAlignment="Center"
                                  GotKeyboardFocus="OnQuickSearchGotKeyboardFocus"
                                  TextChanged="OnQuickSearchTextChanged"
                                  KeyDown="OnQuickSearchKeyDown" />
-                        <Button Content="검색"
+                        <Button Content="&#xE721;"
+                                Style="{StaticResource ToolbarIconButtonStyle}"
+                                FontFamily="Segoe MDL2 Assets"
                                 AutomationProperties.AutomationId="QuickSearchButton"
-                                Margin="6,0,0,0"
+                                AutomationProperties.Name="검색 실행"
+                                ToolTip="검색 실행"
                                 Click="OnQuickSearchClick" />
                     </StackPanel>
 
                     <TextBlock x:Name="StatusText"
                                AutomationProperties.AutomationId="StatusText"
-                               Margin="14,0,0,0"
+                               Grid.Column="1"
+                               Margin="10,0,0,0"
                                VerticalAlignment="Center"
                                Foreground="{DynamicResource SubtleTextBrush}"
                                TextTrimming="CharacterEllipsis" />
-                </DockPanel>
+                </Grid>
 
                 <StackPanel Grid.Column="2"
                             Orientation="Horizontal"
                             VerticalAlignment="Center">
                     <ToggleButton x:Name="DarkModeToggle"
                                   AutomationProperties.AutomationId="DarkModeToggle"
-                                  Content="Dark"
-                                  ToolTip="Dark mode"
+                                  AutomationProperties.Name="다크 모드"
+                                  ToolTip="다크 모드 전환"
                                   Checked="OnThemeToggleChanged"
-                                  Unchecked="OnThemeToggleChanged" />
-                    <Button Content="1"
-                            AutomationProperties.AutomationId="OnePanelButton"
-                            ToolTip="Single panel"
-                            Click="OnOnePanelClick" />
-                    <Button Content="2H"
-                            AutomationProperties.AutomationId="TwoColumnButton"
-                            ToolTip="Two columns"
-                            Click="OnTwoColumnClick" />
-                    <Button Content="2V"
-                            AutomationProperties.AutomationId="TwoRowButton"
-                            ToolTip="Two rows"
-                            Click="OnTwoRowClick" />
-                    <Button Content="3"
-                            AutomationProperties.AutomationId="ThreePanelButton"
-                            ToolTip="Three panel preset"
-                            Click="OnThreePanelClick" />
-                    <Button Content="4"
-                            AutomationProperties.AutomationId="FourPanelButton"
-                            ToolTip="Four panel grid"
-                            Click="OnFourPanelClick" />
+                                  Unchecked="OnThemeToggleChanged">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Margin="0,0,7,0"
+                                       VerticalAlignment="Center"
+                                       FontFamily="Segoe MDL2 Assets"
+                                       FontSize="14"
+                                       Text="&#xE706;" />
+                            <TextBlock VerticalAlignment="Center" Text="Dark" />
+                        </StackPanel>
+                    </ToggleButton>
+                    <Border Background="{DynamicResource ControlBackgroundBrush}"
+                            BorderBrush="{DynamicResource ControlBorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="7"
+                            Padding="1">
+                        <StackPanel Orientation="Horizontal">
+                            <Button Content="&#xE922;"
+                                    Style="{StaticResource SegmentButtonStyle}"
+                                    AutomationProperties.AutomationId="OnePanelButton"
+                                    AutomationProperties.Name="단일 패널"
+                                    ToolTip="단일 패널"
+                                    Click="OnOnePanelClick" />
+                            <Button Style="{StaticResource SegmentButtonStyle}"
+                                    AutomationProperties.AutomationId="TwoColumnButton"
+                                    AutomationProperties.Name="두 열"
+                                    ToolTip="두 열"
+                                    Click="OnTwoColumnClick">
+                                <Viewbox Width="18" Height="18">
+                                    <Path Width="20"
+                                          Height="20"
+                                          Data="{StaticResource LayoutColumnTwoGeometry}"
+                                          Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type Button}}}"
+                                          Stretch="Uniform" />
+                                </Viewbox>
+                            </Button>
+                            <Button Style="{StaticResource SegmentButtonStyle}"
+                                    AutomationProperties.AutomationId="TwoRowButton"
+                                    AutomationProperties.Name="두 행"
+                                    ToolTip="두 행"
+                                    Click="OnTwoRowClick">
+                                <Viewbox Width="18" Height="18">
+                                    <Path Width="20"
+                                          Height="20"
+                                          Data="{StaticResource LayoutRowTwoGeometry}"
+                                          Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type Button}}}"
+                                          Stretch="Uniform" />
+                                </Viewbox>
+                            </Button>
+                            <Button Style="{StaticResource SegmentButtonStyle}"
+                                    AutomationProperties.AutomationId="ThreePanelButton"
+                                    AutomationProperties.Name="세 패널"
+                                    ToolTip="세 패널"
+                                    Click="OnThreePanelClick">
+                                <Viewbox Width="18" Height="18">
+                                    <Path Width="20"
+                                          Height="20"
+                                          Data="{StaticResource LayoutColumnTwoSplitRightGeometry}"
+                                          Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type Button}}}"
+                                          Stretch="Uniform" />
+                                </Viewbox>
+                            </Button>
+                            <Button Content="&#xE8A9;"
+                                    Style="{StaticResource SegmentButtonStyle}"
+                                    AutomationProperties.AutomationId="FourPanelButton"
+                                    AutomationProperties.Name="네 패널"
+                                    ToolTip="네 패널 그리드"
+                                    Click="OnFourPanelClick" />
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
             </Grid>
         </Border>
@@ -157,7 +223,7 @@
 
         <Grid x:Name="WorkspaceRoot"
               AutomationProperties.AutomationId="WorkspaceRoot"
-              Margin="0">
+              Margin="4,2,4,4">
             <Grid x:Name="WorkspaceGrid" />
             <docking:DockPreviewOverlay x:Name="DockPreviewOverlay" />
         </Grid>

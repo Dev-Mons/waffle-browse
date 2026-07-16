@@ -16,6 +16,37 @@ internal static class MainWindowSearchToolbarTests
         }
     }
 
+    public static void MainWindowUsesWaffleToolbarHierarchy()
+    {
+        var xaml = File.ReadAllText(FindRepositoryFile(@"src\Waffle.Browse.App\MainWindow.xaml"));
+
+        var requiredFragments = new[]
+        {
+            "Source=\"Assets/AppIcon.png\"",
+            "Tag=\"파일 및 폴더 검색\"",
+            "Style=\"{StaticResource ToolbarIconButtonStyle}\"",
+            "Style=\"{StaticResource SegmentButtonStyle}\"",
+            "Margin=\"4,2,4,4\"",
+            "Content=\"&#xE922;\"",
+            "Data=\"{StaticResource LayoutColumnTwoGeometry}\"",
+            "Data=\"{StaticResource LayoutRowTwoGeometry}\"",
+            "Data=\"{StaticResource LayoutColumnTwoSplitRightGeometry}\"",
+            "Content=\"&#xE8A9;\""
+        };
+
+        if (requiredFragments.Any(fragment => !xaml.Contains(fragment, StringComparison.Ordinal)))
+        {
+            throw new InvalidOperationException("Main window should use the Waffle toolbar and soft-grid workspace hierarchy.");
+        }
+
+        var design = File.ReadAllText(FindRepositoryFile("DESIGN.md"));
+        if (!design.Contains("Toasted Soft Grid", StringComparison.Ordinal)
+            || !design.Contains("#D99018", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("DESIGN.md should define the Waffle visual direction and dark honey accent.");
+        }
+    }
+
     public static void MainWindowExposesFileIndexProgress()
     {
         var xaml = File.ReadAllText(FindRepositoryFile(@"src\Waffle.Browse.App\MainWindow.xaml"));
