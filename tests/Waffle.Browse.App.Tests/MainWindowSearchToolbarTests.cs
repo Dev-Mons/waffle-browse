@@ -22,21 +22,26 @@ internal static class MainWindowSearchToolbarTests
 
         var requiredFragments = new[]
         {
-            "Source=\"Assets/AppIcon.png\"",
             "Tag=\"파일 및 폴더 검색\"",
             "Style=\"{StaticResource ToolbarIconButtonStyle}\"",
             "Style=\"{StaticResource SegmentButtonStyle}\"",
             "Margin=\"4,2,4,4\"",
-            "Content=\"&#xE922;\"",
+            "Data=\"{StaticResource LayoutSingleGeometry}\"",
             "Data=\"{StaticResource LayoutColumnTwoGeometry}\"",
             "Data=\"{StaticResource LayoutRowTwoGeometry}\"",
             "Data=\"{StaticResource LayoutColumnTwoSplitRightGeometry}\"",
-            "Content=\"&#xE8A9;\""
+            "Data=\"{StaticResource LayoutCellFourGeometry}\""
         };
 
         if (requiredFragments.Any(fragment => !xaml.Contains(fragment, StringComparison.Ordinal)))
         {
             throw new InvalidOperationException("Main window should use the Waffle toolbar and soft-grid workspace hierarchy.");
+        }
+
+        if (xaml.Contains("<TextBlock Text=\"Waffle Browse\"", StringComparison.Ordinal)
+            || xaml.Contains("Source=\"Assets/AppIcon.png\"", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("The native title bar should own product identity without duplicating it in the search toolbar.");
         }
 
         var design = File.ReadAllText(FindRepositoryFile("DESIGN.md"));

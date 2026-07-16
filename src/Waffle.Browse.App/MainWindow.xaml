@@ -25,27 +25,12 @@
                 Padding="12,5">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <StackPanel Orientation="Horizontal"
-                            VerticalAlignment="Center">
-                    <Image Width="22"
-                           Height="22"
-                           Margin="0,0,8,0"
-                           Source="Assets/AppIcon.png"
-                           Stretch="Uniform" />
-                    <TextBlock Text="Waffle Browse"
-                               VerticalAlignment="Center"
-                               FontSize="18"
-                               FontWeight="SemiBold"
-                               Foreground="{DynamicResource PrimaryTextBrush}" />
-                </StackPanel>
-
-                <Grid Grid.Column="1"
-                      Margin="22,0,14,0">
+                <Grid Grid.Column="0"
+                      Margin="0,0,14,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
@@ -80,7 +65,7 @@
                                TextTrimming="CharacterEllipsis" />
                 </Grid>
 
-                <StackPanel Grid.Column="2"
+                <StackPanel Grid.Column="1"
                             Orientation="Horizontal"
                             VerticalAlignment="Center">
                     <ToggleButton x:Name="DarkModeToggle"
@@ -104,12 +89,19 @@
                             CornerRadius="7"
                             Padding="1">
                         <StackPanel Orientation="Horizontal">
-                            <Button Content="&#xE922;"
-                                    Style="{StaticResource SegmentButtonStyle}"
+                            <Button Style="{StaticResource SegmentButtonStyle}"
                                     AutomationProperties.AutomationId="OnePanelButton"
                                     AutomationProperties.Name="단일 패널"
                                     ToolTip="단일 패널"
-                                    Click="OnOnePanelClick" />
+                                    Click="OnOnePanelClick">
+                                <Viewbox Width="18" Height="18">
+                                    <Path Width="20"
+                                          Height="20"
+                                          Data="{StaticResource LayoutSingleGeometry}"
+                                          Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type Button}}}"
+                                          Stretch="Uniform" />
+                                </Viewbox>
+                            </Button>
                             <Button Style="{StaticResource SegmentButtonStyle}"
                                     AutomationProperties.AutomationId="TwoColumnButton"
                                     AutomationProperties.Name="두 열"
@@ -149,12 +141,19 @@
                                           Stretch="Uniform" />
                                 </Viewbox>
                             </Button>
-                            <Button Content="&#xE8A9;"
-                                    Style="{StaticResource SegmentButtonStyle}"
+                            <Button Style="{StaticResource SegmentButtonStyle}"
                                     AutomationProperties.AutomationId="FourPanelButton"
                                     AutomationProperties.Name="네 패널"
                                     ToolTip="네 패널 그리드"
-                                    Click="OnFourPanelClick" />
+                                    Click="OnFourPanelClick">
+                                <Viewbox Width="18" Height="18">
+                                    <Path Width="20"
+                                          Height="20"
+                                          Data="{StaticResource LayoutCellFourGeometry}"
+                                          Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type Button}}}"
+                                          Stretch="Uniform" />
+                                </Viewbox>
+                            </Button>
                         </StackPanel>
                     </Border>
                 </StackPanel>

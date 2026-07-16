@@ -6,22 +6,24 @@
 - Corner defect reference: `C:/Users/admin/AppData/Local/Temp/codex-clipboard-1701dcda-7af6-4dc3-b271-1f4659620bfe.png`
 - Icon defect reference: `C:/Users/admin/AppData/Local/Temp/codex-clipboard-6b5762f2-5027-448c-9b96-fa81a5476921.png`
 - Address-bar defect reference: `docs/ui-qa/implementation-refinement-final.png`
-- Latest implementation screenshot: `docs/ui-qa/implementation-addressbar-final.png`
-- Latest full-view comparison: `docs/ui-qa/refinement-latest-full-comparison.png`
+- Toolbar refinement source: `docs/ui-qa/implementation-addressbar-final.png`
+- Latest implementation screenshot: `docs/ui-qa/implementation-toolbar-cleanup-final.png`
+- Latest full-view comparison: `docs/ui-qa/refinement-toolbar-latest-full-comparison.png`
+- Focused toolbar comparison: `docs/ui-qa/refinement-toolbar-comparison.png`
 - Focused corner comparison: `docs/ui-qa/refinement-corner-comparison.png`
 - Focused icon comparison: `docs/ui-qa/refinement-icons-comparison.png`
 - Focused address-bar comparison: `docs/ui-qa/refinement-addressbar-comparison.png`
 - Viewport: 1266 × 793 native application capture.
-- State: dark theme, four-panel layout, upper-left address field focused, populated native Explorer detail views.
+- State: dark theme, four-panel layout, populated native Explorer detail views, pointer clear of toolbar controls.
 
 ## Findings
 
 - No actionable P0, P1, or P2 visual mismatches remain.
-- The latest capture confirms the path text is fully visible, vertically stable, and does not move when the mouse wheel is used over the focused address field.
+- The latest capture confirms that all five layout presets share the same rounded Fluent silhouette and the toolbar no longer repeats the native title-bar identity.
 
 ## Full-view comparison
 
-The implementation retains the selected Toasted Soft Grid direction with compact 4px panel gutters, reduced toolbar chrome, warm espresso surfaces, cream typography, and a toasted-honey active ring. The latest address-bar correction does not increase the overall navigation-row height: the field gained 2px while the surrounding inset lost 1px on each side.
+The implementation retains the selected Toasted Soft Grid direction with compact 4px panel gutters, reduced toolbar chrome, warm espresso surfaces, cream typography, and a toasted-honey active ring. Removing the duplicate app lockup gives the search field a clean left-edge start while preserving the theme and layout controls at the right.
 
 The native Explorer host remains the content authority, so Windows-rendered file rows and headers are slightly brighter than the generated source. This is an accepted product constraint.
 
@@ -33,7 +35,11 @@ The left side of `docs/ui-qa/refinement-addressbar-comparison.png` shows the pre
 
 ### Layout icons
 
-`docs/ui-qa/refinement-icons-comparison.png` shows the original ambiguous dock/dashboard symbols on the left and exact Microsoft Fluent UI System Icons on the right: two equal columns, two equal rows, and a primary-left three-panel split. Single-panel and 2×2 icons remain unchanged as requested.
+`docs/ui-qa/refinement-toolbar-comparison.png` shows the previous mixed icon treatment in its upper half and the corrected toolbar in its lower half. Single-panel and 2×2 presets now use the same 20px regular Fluent geometry, rounded outer frame, stroke weight, and 18px visual slot as the middle three presets.
+
+### Toolbar identity
+
+The focused toolbar comparison confirms that the duplicate app icon and "Waffle Browse" label were removed below the native title bar. Search now begins at the standard 12px toolbar inset, reclaiming horizontal space without changing toolbar height.
 
 ### Active-panel corner
 
@@ -42,10 +48,10 @@ The left side of `docs/ui-qa/refinement-addressbar-comparison.png` shows the pre
 ## Required fidelity surfaces
 
 - Fonts and typography: passed. Segoe UI path text is fully visible at 13px with 2px vertical padding; no wrapping or vertical movement occurs.
-- Spacing and layout rhythm: passed. The address navigation row remains 40px overall while the field's usable content height increases.
+- Spacing and layout rhythm: passed. Search starts at the toolbar inset, and removing the redundant lockup improves horizontal flow without moving the right-side controls.
 - Colors and visual tokens: passed. Espresso, cream, toasted-honey, divider, and selected-surface tokens remain unchanged and centralized.
-- Image quality and asset fidelity: passed. The existing app icon remains sharp; no decorative assets or placeholders were introduced.
-- Icons: passed. The three corrected diagrams come directly from Microsoft Fluent UI System Icons; single and grid presets retain the accepted Windows symbols. Tooltips and automation names remain explicit.
+- Image quality and asset fidelity: passed. The native title-bar app icon remains sharp; no decorative assets or placeholders were introduced.
+- Icons: passed. All five layout diagrams use Microsoft Fluent UI System Icons with matching rounded silhouettes and sizing. Tooltips and automation names remain explicit.
 - Copy and content: passed. File paths remain real application content and render as a single coherent line.
 - Accessibility and behavior: passed. The address field is single-line, its vertical scrollbar is disabled, and icon-only controls retain tooltips and automation metadata.
 - Responsiveness: passed for the supported desktop minimum. The compact top controls remain on one row and persistent controls do not overlap.
@@ -76,15 +82,24 @@ The left side of `docs/ui-qa/refinement-addressbar-comparison.png` shows the pre
   - Fix: changed the field from 30px to 32px, set padding to `9,2`, enforced one line, and disabled vertical scrolling. The containing row inset changed from 5px to 4px, preserving total row height.
   - Post-fix evidence: `docs/ui-qa/refinement-addressbar-comparison.png` and `docs/ui-qa/implementation-addressbar-final.png`.
 
+### Toolbar identity and icon-family correction
+
+- [P2] Single-panel and four-panel presets used square Segoe MDL2 glyphs while the middle presets used rounded Fluent diagrams.
+  - Fix: replaced both outliers with the Fluent `Square` and `Layout Cell Four` 20px regular geometries in the same 18px slot.
+- [P2] The app icon and name were repeated immediately below the native title bar.
+  - Fix: removed the toolbar lockup and moved search to the leading toolbar inset.
+  - Post-fix evidence: `docs/ui-qa/refinement-toolbar-comparison.png` and `docs/ui-qa/implementation-toolbar-cleanup-final.png`.
+
 ### Final pass
 
-- Full-view and focused address/icon/corner comparisons were opened together and reviewed.
+- Full-view and focused toolbar comparisons were opened together and reviewed after the latest changes.
 - No actionable P0, P1, or P2 findings remain.
 
 ## Interactions tested
 
 - The focused address field was scrolled with the mouse wheel; the path remained vertically fixed and fully visible.
-- Two-column, two-row, three-panel, and four-panel preset actions were activated and returned the expected status copy; the two-column action was additionally verified by direct click.
+- Single-panel and four-panel preset actions were activated in sequence; the status changed to the single-panel state and the workspace returned to a true 2×2 grid.
+- The accessibility tree exposes the search field plus explicit single-panel and four-panel button names while the duplicate toolbar product label is absent.
 - Build completed with 0 warnings and 0 errors.
 - Automated regression suites passed: 61 core tests and 66 app tests.
 - No unhandled application errors were observed. Browser console checks are not applicable to this native WPF application.

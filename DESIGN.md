@@ -65,7 +65,7 @@ Semantic error, warning, and success colors must remain distinct from the honey 
 
 - UI family: `Segoe UI`, falling back to the Windows system sans serif.
 - Icon families: `Segoe MDL2 Assets` for existing Windows actions and Microsoft Fluent UI System Icons for exact layout diagrams. Never substitute improvised geometry when a library icon exists.
-- App title: 20px, semibold.
+- Native window title: use the system title-bar treatment; do not repeat the product name in app chrome.
 - Standard UI and file rows: 13–14px, regular.
 - Tab labels and compact controls: 12–13px, medium.
 - Metadata/status: 12px, regular.
@@ -100,8 +100,8 @@ The workspace uses 4px between panels and approximately 6px at the outer window 
 ### Global toolbar
 
 - Height target: 43–47px.
-- Left: existing app icon and "Waffle Browse" title.
-- Center: the global search, visually dominant and at least 420px wide when space allows.
+- Left: the global search begins at the toolbar inset; the native title bar is the sole product-identity lockup.
+- Center: status copy uses the flexible remaining space and truncates before right-side controls.
 - Right: theme control followed by one grouped layout preset control.
 - Status copy is muted and truncates before it pushes the right-side controls.
 
@@ -116,7 +116,7 @@ The workspace uses 4px between panels and approximately 6px at the outer window 
 
 - Present presets as one segmented group.
 - Preserve all current commands: single, two columns, two rows, three panels, four panels.
-- Use exact layout diagrams: single view, two equal columns, two equal rows, primary-left three-panel split, and 2×2 grid. Each segment keeps a descriptive tooltip and automation name.
+- Use one consistent rounded Fluent icon family for all five exact diagrams: single view, two equal columns, two equal rows, primary-left three-panel split, and 2×2 grid. Each segment keeps a descriptive tooltip and automation name.
 
 ### Explorer panel
 
@@ -168,5 +168,5 @@ The workspace uses 4px between panels and approximately 6px at the outer window 
 - Do not alter indexing scope, filesystem permissions, native shell security behavior, or user-selected roots for visual reasons.
 - Do not replace native file operations or navigation shortcuts.
 - Keep theme values centralized in `AppThemeResources` and resource keys; avoid isolated hard-coded colors in controls.
-- Reuse `AppIcon.png` and Segoe MDL2 Assets. Do not introduce decorative raster assets unless the product gains a real empty state or onboarding surface that needs them.
+- Keep `AppIcon.png` for native application identity and Segoe MDL2 Assets for existing Windows actions. Do not duplicate the app lockup inside the global toolbar or introduce decorative raster assets unless the product gains a real empty state or onboarding surface that needs them.
 - Validate both light and dark themes, one-panel and four-panel layouts, tab overflow, search focus, theme switching, and active-panel transitions.
