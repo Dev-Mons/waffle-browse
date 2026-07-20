@@ -67,6 +67,8 @@ var tests = new (string Name, Action Run)[]
     ("Explorer panel uses soft-grid chrome", ExplorerPanelControlVisualTests.ExplorerPanelUsesSoftGridChrome),
     ("UI settings store round-trips theme", UiSettingsStoreTests.UiSettingsStoreRoundTripsTheme),
     ("UI settings store round-trips index roots", UiSettingsStoreTests.UiSettingsStoreRoundTripsIndexRoots),
+    ("UI settings store round-trips window placement", UiSettingsStoreTests.UiSettingsStoreRoundTripsWindowPlacement),
+    ("Off-screen window placement is moved onto virtual screen", UiSettingsStoreTests.WindowPlacementIsMovedBackOntoVirtualScreen),
     ("Application data path uses current directory for new installs", ApplicationDataPathTests.ResolveUsesCurrentDirectoryForNewInstall),
     ("Application data path migrates legacy directory", ApplicationDataPathTests.ResolveMigratesLegacyDirectory),
     ("Application data path prefers existing current directory", ApplicationDataPathTests.ResolvePrefersExistingCurrentDirectory),

@@ -66,6 +66,8 @@ public partial class MainWindow : Window
     private UiSettings settings = new();
     private bool isApplyingSettingsToUi;
     private bool isUpdatingSearchBox;
+    private bool shouldRestoreMaximized;
+    private WindowState lastNonMinimizedWindowState = WindowState.Normal;
     private DockDragPayload? activeDragPayload;
     private DockDropPreview? activeDropPreview;
     private readonly Dictionary<Guid, ExplorerPanelControl> panelControlsById = [];
@@ -85,6 +87,8 @@ public partial class MainWindow : Window
             buildOnInitialize: false);
 
         InitializeComponent();
+        RestoreWindowPlacement();
+        StateChanged += OnWindowStateChanged;
         waffleFileSearchProvider.IndexStatusChanged += OnFileIndexStatusChanged;
         searchDebounceTimer = new DispatcherTimer(DispatcherPriority.Background)
         {
@@ -120,6 +124,7 @@ public partial class MainWindow : Window
 
     private void OnClosing(object? sender, CancelEventArgs e)
     {
+        SaveWindowPlacement();
         nativeFocusEventTracer.Dispose();
         searchDebounceTimer.Stop();
         foreach (var panelControl in panelControlsById.Values)
@@ -134,8 +139,90 @@ public partial class MainWindow : Window
         waffleFileSearchProvider.Dispose();
         indexCancellation.Dispose();
         ComponentDispatcher.ThreadFilterMessage -= OnThreadFilterMessage;
+        StateChanged -= OnWindowStateChanged;
         SaveSettings();
         SaveLayout();
+    }
+
+    private void OnWindowStateChanged(object? sender, EventArgs e)
+    {
+        if (WindowState != WindowState.Minimized)
+        {
+            lastNonMinimizedWindowState = WindowState;
+        }
+    }
+
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+
+        if (!shouldRestoreMaximized)
+        {
+            return;
+        }
+
+        // The native window must first be created at the restored normal bounds.
+        // Maximizing before this point makes Windows choose the primary monitor.
+        lastNonMinimizedWindowState = WindowState.Maximized;
+        WindowState = WindowState.Maximized;
+        shouldRestoreMaximized = false;
+    }
+
+    private void RestoreWindowPlacement()
+    {
+        var virtualScreen = new Rect(
+            SystemParameters.VirtualScreenLeft,
+            SystemParameters.VirtualScreenTop,
+            SystemParameters.VirtualScreenWidth,
+            SystemParameters.VirtualScreenHeight);
+
+        if (!WindowPlacementValidator.TryNormalize(settings.WindowPlacement, virtualScreen, out var bounds))
+        {
+            return;
+        }
+
+        WindowStartupLocation = WindowStartupLocation.Manual;
+        Left = bounds.Left;
+        Top = bounds.Top;
+        Width = Math.Max(MinWidth, bounds.Width);
+        Height = Math.Max(MinHeight, bounds.Height);
+
+        if (settings.WindowPlacement!.IsMaximized)
+        {
+            shouldRestoreMaximized = true;
+        }
+    }
+
+    private void SaveWindowPlacement()
+    {
+        var bounds = WindowState == WindowState.Normal
+            ? new Rect(Left, Top, Width, Height)
+            : RestoreBounds;
+
+        if (bounds.IsEmpty
+            || double.IsNaN(bounds.Left)
+            || double.IsNaN(bounds.Top)
+            || double.IsNaN(bounds.Width)
+            || double.IsNaN(bounds.Height)
+            || bounds.Width <= 0
+            || bounds.Height <= 0)
+        {
+            return;
+        }
+
+        settings = settings with
+        {
+            WindowPlacement = new WindowPlacementSettings
+            {
+                Left = bounds.Left,
+                Top = bounds.Top,
+                Width = bounds.Width,
+                Height = bounds.Height,
+                IsMaximized = WindowState == WindowState.Maximized
+                    || (WindowState == WindowState.Minimized
+                        && lastNonMinimizedWindowState == WindowState.Maximized)
+            }
+        };
     }
 
     private void OnOnePanelClick(object sender, RoutedEventArgs e)
