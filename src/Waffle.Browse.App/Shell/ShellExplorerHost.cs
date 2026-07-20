@@ -20,6 +20,7 @@ public sealed class ShellExplorerHost : HwndHost
     private const int WsVisible = 0x10000000;
     private const int WsClipSiblings = 0x04000000;
     private const int WsClipChildren = 0x02000000;
+    private const int WmSize = 0x0005;
     private const int WmSetFocus = 0x0007;
     private const uint SvgioSelection = 0x1;
 
@@ -201,6 +202,7 @@ public sealed class ShellExplorerHost : HwndHost
 
     protected override HandleRef BuildWindowCore(HandleRef hwndParent)
     {
+        var initialBounds = GetInitialBrowserBounds();
         hostWindow = CreateWindowEx(
             0,
             "static",
@@ -208,8 +210,8 @@ public sealed class ShellExplorerHost : HwndHost
             WsChild | WsVisible | WsClipSiblings | WsClipChildren,
             0,
             0,
-            Math.Max((int)ActualWidth, 1),
-            Math.Max((int)ActualHeight, 1),
+            initialBounds.Right,
+            initialBounds.Bottom,
             hwndParent.Handle,
             IntPtr.Zero,
             IntPtr.Zero,
@@ -220,32 +222,35 @@ public sealed class ShellExplorerHost : HwndHost
             throw new InvalidOperationException("Could not create the Explorer host window.");
         }
 
-        browser = CreateExplorerBrowser();
-        var bounds = new NativeRect(0, 0, Math.Max((int)ActualWidth, 1), Math.Max((int)ActualHeight, 1));
+        var createdBrowser = CreateExplorerBrowser();
+        var bounds = GetHostClientBounds(initialBounds);
         var settings = new FolderSettings
         {
             ViewMode = (FolderViewMode)ShellFolderViewSettings.DetailsViewMode,
             Flags = (FolderFlags)ShellFolderViewSettings.InitialFlags
         };
-        browser.Initialize(hostWindow, ref bounds, ref settings);
+        createdBrowser.Initialize(hostWindow, ref bounds, ref settings);
+        browser = createdBrowser;
+        SynchronizeBrowserBounds();
         ApplyCurrentFolderViewFlags();
         browserEvents = new ExplorerBrowserEvents(OnBrowserNavigationCompleted, OnBrowserViewCreated);
         browser.Advise(browserEvents, out browserEventsCookie);
 
-        if (!string.IsNullOrWhiteSpace(pendingPath))
+        Dispatcher.BeginInvoke(() =>
         {
-            Dispatcher.BeginInvoke(() =>
+            // HwndHost can receive its first WPF layout before ExplorerBrowser is
+            // initialized. Re-read the native client rectangle after layout so an
+            // undersized initial view cannot expose the host's white background.
+            SynchronizeBrowserBounds();
+            if (browser is not null && !string.IsNullOrWhiteSpace(pendingPath))
             {
-                if (browser is not null && !string.IsNullOrWhiteSpace(pendingPath))
+                var navigated = BrowseToPath(pendingPath);
+                if (!navigated)
                 {
-                    var navigated = BrowseToPath(pendingPath);
-                    if (!navigated)
-                    {
-                        NavigationFailed?.Invoke(this, pendingPath);
-                    }
+                    NavigationFailed?.Invoke(this, pendingPath);
                 }
-            }, DispatcherPriority.Loaded);
-        }
+            }
+        }, DispatcherPriority.Loaded);
 
         return new HandleRef(this, hostWindow);
     }
@@ -276,6 +281,11 @@ public sealed class ShellExplorerHost : HwndHost
 
     protected override IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        if (hwnd == hostWindow && msg == WmSize)
+        {
+            SynchronizeBrowserBounds();
+        }
+
         if (hwnd == hostWindow && msg == WmSetFocus && FocusShellViewWindow())
         {
             handled = true;
@@ -298,13 +308,42 @@ public sealed class ShellExplorerHost : HwndHost
     protected override void OnWindowPositionChanged(Rect rcBoundingBox)
     {
         base.OnWindowPositionChanged(rcBoundingBox);
-        if (browser is null)
+        SynchronizeBrowserBounds();
+    }
+
+    private void SynchronizeBrowserBounds()
+    {
+        if (browser is null || hostWindow == IntPtr.Zero)
         {
             return;
         }
 
-        var bounds = new NativeRect(0, 0, Math.Max((int)rcBoundingBox.Width, 1), Math.Max((int)rcBoundingBox.Height, 1));
+        var bounds = GetHostClientBounds(new NativeRect(0, 0, 1, 1));
         browser.SetRect(IntPtr.Zero, ref bounds);
+    }
+
+    private NativeRect GetInitialBrowserBounds()
+    {
+        var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(this);
+        return new NativeRect(
+            0,
+            0,
+            Math.Max((int)Math.Ceiling(ActualWidth * dpi.DpiScaleX), 1),
+            Math.Max((int)Math.Ceiling(ActualHeight * dpi.DpiScaleY), 1));
+    }
+
+    private NativeRect GetHostClientBounds(NativeRect fallback)
+    {
+        if (hostWindow == IntPtr.Zero || !GetClientRect(hostWindow, out var bounds))
+        {
+            return fallback;
+        }
+
+        return new NativeRect(
+            0,
+            0,
+            Math.Max(bounds.Right - bounds.Left, 1),
+            Math.Max(bounds.Bottom - bounds.Top, 1));
     }
 
     private bool BrowseToPath(string path)
@@ -496,6 +535,10 @@ public sealed class ShellExplorerHost : HwndHost
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool DestroyWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetClientRect(IntPtr hwnd, out NativeRect rect);
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetFocus();

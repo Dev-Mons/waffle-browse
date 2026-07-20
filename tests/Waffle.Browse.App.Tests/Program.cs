@@ -45,6 +45,7 @@ var tests = new (string Name, Action Run)[]
     ("Shell folder view uses details mode", ShellFolderViewSettingsTests.DefaultFolderViewUsesDetailsMode),
     ("Shell initial folder settings do not include full row selection", ShellFolderViewSettingsTests.InitialFolderSettingsDoNotIncludeFullRowSelection),
     ("Shell current folder flags enable full row selection", ShellFolderViewSettingsTests.CurrentFolderFlagsEnableFullRowSelection),
+    ("Shell host fills its final native client bounds on initial layout", ShellExplorerHostSizingTests.InitialLayoutResynchronizesNativeBrowserBounds),
     ("Shell view activation uses in-place then focused state", ShellViewActivationManagerTests.ActivateWithFocusUsesInPlaceThenFocusedShellViewState),
     ("Shell view activation ignores COM failures", ShellViewActivationManagerTests.ActivateWithFocusIgnoresComFailures),
     ("Shell view activation treats failed HRESULT as failure", ShellViewActivationManagerTests.ActivateWithFocusTreatsFailedHresultAsFailure),
